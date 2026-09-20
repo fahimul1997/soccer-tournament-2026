@@ -1,9 +1,10 @@
 window.FIREBASE_CONFIG = {
-  apiKey: "YOUR_API_KEY",
-  authDomain: "YOUR_PROJECT.firebaseapp.com",
-  databaseURL: "https://YOUR_PROJECT-default-rtdb.firebaseio.com",
-  projectId: "YOUR_PROJECT_ID",
-  storageBucket: "YOUR_PROJECT.appspot.com",
-  messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
-  appId: "YOUR_APP_ID"
+  apiKey: "AIzaSyAcj66TmaN_kWaSCg2-VO2VwqAUnc1Nc_k",
+  authDomain: "brothersfcofficial-89e35.firebaseapp.com",
+  databaseURL: "https://brothersfcofficial-89e35-default-rtdb.firebaseio.com",
+  projectId: "brothersfcofficial-89e35",
+  storageBucket: "brothersfcofficial-89e35.firebasestorage.app",
+  messagingSenderId: "394158384188",
+  appId: "1:394158384188:web:f7a4c174e2c05ea8f0cf39",
+  measurementId: "G-XRWQSNDDG0"
 };
