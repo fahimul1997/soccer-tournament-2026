@@ -539,4 +539,76 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
     }
   };
 })();
-</script></body></html>
+</script></body></html><script>
+/* Live admin preview: typing team names or changing Group A/B immediately updates the public tabs in this browser.
+   Firebase is still only changed when the admin presses SAVE RAFFLE RESULTS & GENERATE SCHEDULE or SAVE TEAM NAME CHANGES. */
+(function(){
+  function previewTournament(){
+    try{
+      var nameEls=document.querySelectorAll('#teamEditor [data-name]');
+      var groupEls=document.querySelectorAll('#teamEditor [data-group]');
+      if(nameEls.length!==8 || groupEls.length!==8 || typeof render!=='function')return;
+      var previewNames=Array.from(nameEls).map(function(el,i){
+        return (el.value||'').trim() || ('Team '+(i+1));
+      });
+      var previewGroups=Array.from(groupEls).map(function(el){return el.value==='B'?'B':'A'});
+      var A=[],B=[];
+      for(var i=0;i<8;i++){(previewGroups[i]==='A'?A:B).push(i)}
+      if(A.length!==4 || B.length!==4)return;
+      var oldState=state;
+      var oldInputs=previewNames.map(function(n,i){return {name:n,group:previewGroups[i]};});
+      var oldTeams=(oldState.teams||[]).map(function(t,i){
+        return Object.assign({},t,{
+          name:t.name||('Team '+(i+1)),
+          roster:Array.isArray(t.roster)?t.roster.slice():[],
+          complete:!!t.complete
+        });
+      });
+      var teams=previewNames.map(function(n,i){
+        var old=oldTeams[i]||{};
+        return {
+          name:n, group:previewGroups[i],
+          roster:old.roster||[], complete:!!old.complete
+        };
+      });
+      var pairsA=[],pairsB=[];
+      for(var ai=0;ai<4;ai++)for(var aj=ai+1;aj<4;aj++){
+        pairsA.push({a:teams[A[ai]].name,b:teams[A[aj]].name});
+        pairsB.push({a:teams[B[ai]].name,b:teams[B[aj]].name});
+      }
+      var games=[];
+      for(var slot=0;slot<6;slot++){
+        var mins=600+slot*50,hh=Math.floor(mins/60),mm=mins%60;
+        var time=((hh+11)%12+1)+':'+String(mm).padStart(2,'0')+' '+(hh<12?'AM':'PM');
+        var pa=pairsA[slot],pb=pairsB[slot];
+        games.push({field:slot%2===0?'Field 1':'Field 2',stage:'Group Stage',date:'',time:time,a:pa.a,b:pa.b,sa:0,sb:0});
+        games.push({field:slot%2===0?'Field 2':'Field 1',stage:'Group Stage',date:'',time:time,a:pb.a,b:pb.b,sa:0,sb:0});
+      }
+      games.push({field:'Field 1',stage:'Semifinal 1',date:'',time:'3:20 PM',a:'Group A #1',b:'Group B #2',sa:0,sb:0});
+      games.push({field:'Field 2',stage:'Semifinal 2',date:'',time:'4:05 PM',a:'Group B #1',b:'Group A #2',sa:0,sb:0});
+      games.push({field:'Field 1',stage:'Final',date:'',time:'5:25 PM',a:'Semifinal 1 Winner',b:'Semifinal 2 Winner',sa:0,sb:0});
+      state={
+        teams:teams,games:games,
+        goals:Array.isArray(oldState.goals)?oldState.goals:[],
+        cards:Array.isArray(oldState.cards)?oldState.cards:[],
+        locked:!!oldState.locked,
+        raffleComplete:true
+      };
+      render();
+      /* render() calls adminRender(), which keeps these exact form values. Restore them explicitly as a safeguard. */
+      document.querySelectorAll('#teamEditor [data-name]').forEach(function(el,i){el.value=oldInputs[i].name});
+      document.querySelectorAll('#teamEditor [data-group]').forEach(function(el,i){el.value=oldInputs[i].group});
+      var notice=document.getElementById('setupStatus');
+      if(notice)notice.innerHTML='<b>Live Preview:</b> Your entered team names and Group A/B assignments are now shown in the other tabs. <b>Press SAVE RAFFLE RESULTS & GENERATE SCHEDULE to permanently save them.</b>';
+    }catch(err){console.error('Live team preview failed:',err)}
+  }
+  function bindPreview(){
+    document.querySelectorAll('#teamEditor [data-name],#teamEditor [data-group]').forEach(function(el){
+      el.addEventListener('input',previewTournament);
+      el.addEventListener('change',previewTournament);
+    });
+  }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',bindPreview);
+  else bindPreview();
+})();
+</script>
