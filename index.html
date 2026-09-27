@@ -440,7 +440,7 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
   window.__applyPublicTeamNames=applyPublicTeamNames;
 })();
 </script><script>
-/* Definitive public-view refresh after team-name changes. */
+/* Definitive team/group save: persist both names AND Group A/B assignments, then rebuild the 12 group games. */
 (function(){
   var btn=document.getElementById('saveTeamNames');
   if(!btn || !window.firebase)return;
@@ -449,59 +449,91 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
     if(btn.disabled)return;
     var currentUser=firebase.auth&&firebase.auth().currentUser;
     if(!currentUser){alert('Admin login required. Please log in again.');return;}
-    var inputs=document.querySelectorAll('#teamEditor [data-name]');
-    if(inputs.length!==8){alert('The 8 team fields are not loaded. Please refresh the page.');return;}
-    var names=Array.from(inputs).map(function(x,i){return (x.value||'').trim()||('Team '+(i+1))});
-    var seen={};
-    for(var i=0;i<names.length;i++){
+    var nameInputs=document.querySelectorAll('#teamEditor [data-name]');
+    var groupInputs=document.querySelectorAll('#teamEditor [data-group]');
+    if(nameInputs.length!==8 || groupInputs.length!==8){
+      alert('The 8 team name/group fields are not loaded. Please refresh the page.');
+      return;
+    }
+    var names=Array.from(nameInputs).map(function(x,i){return (x.value||'').trim()||('Team '+(i+1))});
+    var groups=Array.from(groupInputs).map(function(x){return x.value==='B'?'B':'A'});
+    var A=[],B=[],seen={};
+    for(var i=0;i<8;i++){
       var key=names[i].toLowerCase();
       if(seen[key]){alert('Team names must be unique. "'+names[i]+'" is repeated.');return;}
       seen[key]=true;
+      (groups[i]==='A'?A:B).push(i);
     }
-    btn.disabled=true; btn.textContent='SAVING...';
+    if(A.length!==4 || B.length!==4){
+      alert('Exactly 4 teams must be in each group. Group A: '+A.length+'/4. Group B: '+B.length+'/4.');
+      return;
+    }
+    btn.disabled=true; btn.textContent='SAVING GROUPS...';
     try{
       var ref=firebase.database().ref('tournament');
       var snap=await ref.once('value');
       var data=snap.val()||{};
       var teams=Array.isArray(data.teams)?data.teams:Object.values(data.teams||{});
-      var games=Array.isArray(data.games)?data.games:Object.values(data.games||{});
+      var oldGames=Array.isArray(data.games)?data.games:Object.values(data.games||{});
       var goals=Array.isArray(data.goals)?data.goals:Object.values(data.goals||{});
       var cards=Array.isArray(data.cards)?data.cards:Object.values(data.cards||{});
       if(teams.length!==8)throw new Error('The saved tournament does not contain all 8 teams.');
-      var old=teams.map(function(t,i){return String(t&&t.name||('Team '+(i+1)))});
+
+      var oldNames=teams.map(function(t,i){return String(t&&t.name||('Team '+(i+1)))});
       var rename={};
       teams=teams.map(function(t,i){
-        var n=Object.assign({},t); rename[old[i]]=names[i]; n.name=names[i]; return n;
-      });
-      games=games.map(function(g){
-        var n=Object.assign({},g);
-        if(rename[n.a])n.a=rename[n.a];
-        if(rename[n.b])n.b=rename[n.b];
+        var n=Object.assign({},t);
+        rename[oldNames[i]]=names[i];
+        n.name=names[i];
+        n.group=groups[i];
+        n.roster=Array.isArray(n.roster)?n.roster:[];
+        n.complete=!!n.complete;
         return n;
       });
+
       goals=goals.map(function(g){var n=Object.assign({},g);if(rename[n.team])n.team=rename[n.team];return n});
       cards=cards.map(function(g){var n=Object.assign({},g);if(rename[n.team])n.team=rename[n.team];return n});
-      data.teams=teams; data.games=games; data.goals=goals; data.cards=cards;
+
+      /* Rebuild the fixed 12 group-stage games from the newly saved groups. */
+      var pairsA=[],pairsB=[];
+      for(var ai=0;ai<4;ai++)for(var aj=ai+1;aj<4;aj++){
+        pairsA.push({a:teams[A[ai]].name,b:teams[A[aj]].name});
+        pairsB.push({a:teams[B[ai]].name,b:teams[B[aj]].name});
+      }
+      var games=[];
+      for(var slot=0;slot<6;slot++){
+        var mins=600+slot*50, hh=Math.floor(mins/60), mm=mins%60;
+        var time=((hh+11)%12+1)+':'+String(mm).padStart(2,'0')+' '+(hh<12?'AM':'PM');
+        var pa=pairsA[slot],pb=pairsB[slot];
+        games.push({field:slot%2===0?'Field 1':'Field 2',stage:'Group Stage',date:'',time:time,a:pa.a,b:pa.b,sa:0,sb:0});
+        games.push({field:slot%2===0?'Field 2':'Field 1',stage:'Group Stage',date:'',time:time,a:pb.a,b:pb.b,sa:0,sb:0});
+      }
+      games.push({field:'Field 1',stage:'Semifinal 1',date:'',time:'3:20 PM',a:'Group A #1',b:'Group B #2',sa:0,sb:0});
+      games.push({field:'Field 2',stage:'Semifinal 2',date:'',time:'4:05 PM',a:'Group B #1',b:'Group A #2',sa:0,sb:0});
+      games.push({field:'Field 1',stage:'Final',date:'',time:'5:25 PM',a:'Semifinal 1 Winner',b:'Semifinal 2 Winner',sa:0,sb:0});
+
+      data.teams=teams;
+      data.games=games;
+      data.goals=goals;
+      data.cards=cards;
+      data.raffleComplete=true;
       await ref.set(data);
 
-      /* Update the live page from the exact object that was just written. */
-      state=data;
-      window.__TOURNAMENT_STATE=data;
+      var verify=(await ref.once('value')).val()||{};
+      var vt=Array.isArray(verify.teams)?verify.teams:Object.values(verify.teams||{});
+      var ok=vt.length===8 && vt.every(function(t,i){return String(t.name||'')===names[i] && String(t.group||'')===groups[i]});
+      if(!ok)throw new Error('Firebase verification failed. Names/groups were not confirmed after saving.');
+
+      state=verify;
+      window.__TOURNAMENT_STATE=verify;
       if(typeof render==='function')render();
       if(typeof adminRender==='function')adminRender();
-
-      /* Verify Firebase contains the new names before declaring success. */
-      var verify=(await ref.once('value')).val()||{};
-      var verifyTeams=Array.isArray(verify.teams)?verify.teams:Object.values(verify.teams||{});
-      var ok=verifyTeams.length===8 && verifyTeams.every(function(t,i){return String(t.name||'')===names[i]});
-      if(!ok)throw new Error('Firebase verification failed. The new team names were not confirmed after saving.');
-
       if(typeof window.__refreshTournamentUI==='function')await window.__refreshTournamentUI();
       showTournamentTab('schedule');
-      alert('SUCCESS: Team names were saved and verified. Group A, Group B, Schedule, Standings, Scorers, Cards, and Admin have been refreshed.');
+      alert('SUCCESS: Team names and Group A/B assignments were saved and verified. Schedule, standings, Teams & Players, scorers, and cards were refreshed.');
     }catch(err){
-      console.error('Definitive team-name save failed:',err);
-      alert('SAVE FAILED: '+(err&&err.message?err.message:'Could not save and verify team names.'));
+      console.error('Team/group save failed:',err);
+      alert('SAVE FAILED: '+(err&&err.message?err.message:'Could not save team groups.'));
     }finally{
       btn.disabled=false; btn.textContent='SAVE TEAM NAME CHANGES';
     }
