@@ -248,4 +248,72 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
   }
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',bindLogin);else bindLogin();
 })();
+</script><script>
+(function(){
+  function installRaffleSave(){
+    var btn=document.getElementById('saveTeams');
+    if(!btn || !window.firebase || !firebase.database) return;
+    btn.onclick=async function(e){
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      if(btn.disabled)return;
+      var currentUser=(window.firebase.auth&&firebase.auth().currentUser)||null;
+      if(!currentUser){alert('Admin login required. Please log in again.');return;}
+      var namesEls=document.querySelectorAll('#teamEditor [data-name]');
+      var groupsEls=document.querySelectorAll('#teamEditor [data-group]');
+      if(namesEls.length!==8||groupsEls.length!==8){
+        alert('The 8 team fields did not load correctly. Please refresh the page.');
+        return;
+      }
+      var teams=[];
+      for(var i=0;i<8;i++){
+        var name=(namesEls[i].value||'').trim();
+        var group=groupsEls[i].value==='B'?'B':'A';
+        if(!name) name='Team '+(i+1);
+        teams.push({name:name,group:group,roster:[],complete:false});
+      }
+      var A=teams.filter(function(t){return t.group==='A'}), B=teams.filter(function(t){return t.group==='B'});
+      if(A.length!==4||B.length!==4){
+        alert('Exactly 4 teams must be in each group. Group A: '+A.length+'/4. Group B: '+B.length+'/4.');
+        return;
+      }
+      var seen={};
+      for(var i=0;i<teams.length;i++){
+        var key=teams[i].name.toLowerCase();
+        if(seen[key]){alert('Team names must be unique. "'+teams[i].name+'" is repeated.');return;}
+        seen[key]=true;
+      }
+      var pairsA=[],pairsB=[];
+      for(var ai=0;ai<4;ai++)for(var aj=ai+1;aj<4;aj++){
+        pairsA.push({a:A[ai].name,b:A[aj].name});
+        pairsB.push({a:B[ai].name,b:B[aj].name});
+      }
+      var games=[];
+      for(var slot=0;slot<6;slot++){
+        var mins=600+slot*50, hh=Math.floor(mins/60), mm=mins%60;
+        var time=((hh+11)%12+1)+':'+String(mm).padStart(2,'0')+' '+(hh<12?'AM':'PM');
+        var pa=pairsA[slot],pb=pairsB[slot];
+        games.push({field:slot%2===0?'Field 1':'Field 2',stage:'Group Stage',date:'',time:time,a:pa.a,b:pa.b,sa:0,sb:0});
+        games.push({field:slot%2===0?'Field 2':'Field 1',stage:'Group Stage',date:'',time:time,a:pb.a,b:pb.b,sa:0,sb:0});
+      }
+      games.push({field:'Field 1',stage:'Semifinal 1',date:'',time:'3:20 PM',a:'Group A #1',b:'Group B #2',sa:0,sb:0});
+      games.push({field:'Field 2',stage:'Semifinal 2',date:'',time:'4:05 PM',a:'Group B #1',b:'Group A #2',sa:0,sb:0});
+      games.push({field:'Field 1',stage:'Final',date:'',time:'5:25 PM',a:'Semifinal 1 Winner',b:'Semifinal 2 Winner',sa:0,sb:0});
+      btn.disabled=true;btn.textContent='GENERATING...';
+      try{
+        var tournament={teams:teams,games:games,goals:[],cards:[],locked:false,raffleComplete:true};
+        await firebase.database().ref('tournament').set(tournament);
+        if(typeof showTournamentTab==='function')showTournamentTab('schedule');
+        alert('SUCCESS: The raffle is complete and all 15 games were generated.');
+      }catch(err){
+        console.error('Direct raffle save failed:',err);
+        alert('SAVE FAILED: '+(err&&err.message?err.message:'Please check Firebase connection and try again.'));
+      }finally{
+        btn.disabled=false;btn.textContent='SAVE RAFFLE RESULTS & GENERATE SCHEDULE';
+      }
+    };
+  }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',installRaffleSave);
+  else installRaffleSave();
+})();
 </script></body></html>
