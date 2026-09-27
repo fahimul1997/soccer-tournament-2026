@@ -40,6 +40,21 @@ function renderPublicFallback(){
     '<div class="card"><h3>🏆 Knockout Stage</h3><p>3:20 PM • Field 1 • Semifinal 1: Group A #1 vs Group B #2</p><p>4:05 PM • Field 2 • Semifinal 2: Group B #1 vs Group A #2</p><p>5:25 PM • Field 1 • Final: Semifinal 1 Winner vs Semifinal 2 Winner</p></div>';
 }
 document.addEventListener('DOMContentLoaded',function(){
+  var adminButton=document.getElementById('adminBtn');
+  if(adminButton){
+    adminButton.addEventListener('click',function(e){
+      e.preventDefault();
+      var admin=document.getElementById('admin');
+      var modal=document.getElementById('loginModal');
+      if(window.__adminUserLoggedIn && admin){
+        showTournamentTab('admin');
+      }else if(modal){
+        modal.classList.remove('hidden');
+        var email=document.getElementById('email');
+        if(email) email.focus();
+      }
+    });
+  }
   renderPublicFallback();
   document.querySelectorAll('.tabs [data-tab]').forEach(function(b){
     b.addEventListener('click',function(){showTournamentTab(b.getAttribute('data-tab'));});
