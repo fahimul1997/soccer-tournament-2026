@@ -1367,3 +1367,134 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
   else start();
 })();
 </script>
+
+<script>
+/* LAST-WORD PUBLIC TEAMS + SCHEDULE SYNC
+   This is the final display layer for the two tabs that were remaining stale.
+   It reads the public Firebase record directly and renders these tabs itself,
+   so older rendering layers cannot replace saved team names/rosters/schedule
+   with placeholder data.
+*/
+(function(){
+  var timer=null, running=false, last='';
+  function arr(v){return Array.isArray(v)?v:Object.values(v||{});}
+  function esc(v){return String(v==null?'':v).replace(/[&<>"']/g,function(c){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c];
+  });}
+  function firebaseUrl(){
+    return String(window.FIREBASE_CONFIG&&window.FIREBASE_CONFIG.databaseURL||'').replace(/\/$/,'')+'/tournament.json';
+  }
+  function normalize(data){
+    data=data||{};
+    var teams=arr(data.teams).slice(0,8).map(function(t,i){
+      return {
+        name:String(t&&t.name||('Team '+(i+1))),
+        group:t&&t.group==='B'?'B':'A',
+        roster:arr(t&&t.roster).map(function(p){
+          return typeof p==='string'?p:(p&&p.name?String(p.name):String(p||''));
+        }).filter(Boolean),
+        complete:t&&t.complete===true
+      };
+    });
+    while(teams.length<8){
+      teams.push({name:'Team '+(teams.length+1),group:teams.length<4?'A':'B',roster:[],complete:false});
+    }
+    return {data:data,teams:teams,games:arr(data.games),goals:arr(data.goals)};
+  }
+  function renderTeams(n){
+    var el=document.getElementById('rosterList');
+    if(!el)return;
+    el.innerHTML='<div class="teamsGroups">'+['A','B'].map(function(gr){
+      var list=n.teams.filter(function(t){return t.group===gr;});
+      return '<div class="groupPanel"><div class="groupHead '+(gr==='B'?'b':'')+'"><span>GROUP '+gr+'</span><span>'+list.length+' TEAMS</span></div>'+
+        list.map(function(t,i){
+          return '<div class="teamRow"><div class="teamTop"><span class="teamName">'+(i+1)+'. '+esc(t.name)+'</span>'+
+            '<span class="teamMeta"><span class="teamCount">'+t.roster.length+'/15 players</span>'+
+            '<span class="statusDot '+(t.complete?'':'incomplete')+'">'+(t.complete?'Complete':'Roster open')+'</span></span></div>'+
+            '<div class="teamPlayers">'+(t.roster.length?
+              t.roster.map(function(p){return '<span class="playerChip">'+esc(p)+'</span>';}).join(''):
+              '<span class="muted">No players registered yet.</span>')+
+            '</div></div>';
+        }).join('')+'</div>';
+    }).join('')+'</div>';
+  }
+  function renderSchedule(n){
+    var el=document.getElementById('games');
+    if(!el)return;
+    var complete=n.data.raffleComplete===true || n.games.length===15;
+    if(!complete){
+      el.innerHTML='<div class="notice placeholderNotice"><b>Schedule not generated yet.</b> Complete the raffle and publish it from Admin Dashboard.</div>';
+      return;
+    }
+    function game(g,i){
+      var stage=String(g&&g.stage||'Game');
+      var score=Number(g&&g.sa||0)+' — '+Number(g&&g.sb||0);
+      var gs=n.goals.filter(function(x){return Number(x&&x.game)===i;});
+      var scorer=gs.length?
+        '<div class="scorersBox"><b>⚽ Goal Scorers</b><br>'+
+        gs.map(function(x){
+          return '<span><b>'+esc(x.team||'')+':</b> '+esc(x.player||'No scorer')+
+            (x.time&&x.time!=='-'?' '+esc(x.time):'')+'</span>';
+        }).join('<br>')+'</div>':
+        '<div class="scorersBox muted">No goals recorded yet.</div>';
+      return '<div class="card gameCard '+(stage!=='Group Stage'?'knockout':'')+'">'+
+        '<div><b>'+esc(stage)+'</b> <span class="pill">'+esc(g.field||'')+'</span></div>'+
+        '<div class="muted" style="margin-top:4px"><b>Time:</b> '+esc(g.time||'')+'</div>'+
+        '<div class="match" style="margin-top:10px"><b>'+esc(g.a||'TBD')+'</b>'+
+        '<span class="score">'+score+'</span><b class="right">'+esc(g.b||'TBD')+'</b></div>'+
+        '<div class="muted">40-minute game • 5-minute halftime • 5-minute changeover/buffer</div>'+
+        scorer+'</div>';
+    }
+    var group=n.games.filter(function(g){return g&&g.stage==='Group Stage';});
+    var ko=n.games.filter(function(g){return g&&g.stage!=='Group Stage';});
+    el.innerHTML=group.map(function(g){return game(g,n.games.indexOf(g));}).join('')+
+      '<div class="notice"><b>🍽️ Lunch Break:</b> 30 minutes after all 12 group-stage matches. <b>Lunch will be provided.</b></div>'+
+      '<h3 style="margin-top:18px">🏆 Knockout Stage</h3>'+
+      ko.map(function(g){return game(g,n.games.indexOf(g));}).join('');
+  }
+  function render(data){
+    var n=normalize(data);
+    var signature=JSON.stringify({
+      teams:n.teams,games:n.games,goals:n.goals,raffleComplete:n.data.raffleComplete
+    });
+    window.__PUBLIC_TOURNAMENT_DATA=n.data;
+    window.__AUTHORITATIVE_TOURNAMENT=n.data;
+    renderTeams(n);
+    renderSchedule(n);
+    if(typeof window.__fixPublicStandings==='function')window.__fixPublicStandings();
+    last=signature;
+  }
+  async function read(){
+    if(running)return;
+    running=true;
+    try{
+      var url=firebaseUrl();
+      if(url==='/tournament.json')throw new Error('Firebase database URL is not configured.');
+      var response=await fetch(url,{cache:'no-store'});
+      if(!response.ok)throw new Error('Firebase public read HTTP '+response.status);
+      var data=await response.json();
+      var n=normalize(data||{});
+      var signature=JSON.stringify({teams:n.teams,games:n.games,goals:n.goals,raffleComplete:n.data.raffleComplete});
+      if(signature!==last)render(data||{});
+    }catch(e){
+      console.warn('Last-word public sync failed:',e);
+    }finally{
+      running=false;
+    }
+  }
+  function start(){
+    if(timer)clearInterval(timer);
+    read();
+    timer=setInterval(read,2000);
+    document.querySelectorAll('.tabs [data-tab="rosters"],.tabs [data-tab="schedule"]').forEach(function(tab){
+      tab.addEventListener('click',function(){
+        setTimeout(read,0);
+        setTimeout(read,250);
+      },true);
+    });
+  }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',start);
+  else start();
+})();
+</script>
+
