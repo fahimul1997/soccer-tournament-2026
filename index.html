@@ -544,19 +544,10 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
 
     ref.on('value',function(snap){
       var d=snap.val();
-      if(hasTournamentData(d)){
-        saveBackup(d);
-        return;
-      }
-      var backup=getBackup();
-      if(backup && !restoring && authx.currentUser){
-        restoring=true;
-        ref.set(normalize(backup)).then(function(){
-          console.warn('Restored tournament from durable backup after empty Firebase snapshot.');
-        }).catch(function(e){
-          console.error('Durable Firebase restore failed:',e);
-        }).finally(function(){restoring=false});
-      }
+      /* BACKUP ONLY: Never write backup data back to Firebase automatically.
+         An empty snapshot must remain visible so a real Firebase problem cannot
+         silently overwrite the live database with stale local data. */
+      if(hasTournamentData(d)) saveBackup(d);
     });
 
     function backupFromFirebase(){
@@ -570,18 +561,9 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
       if(!u)return;
       ref.once('value').then(function(s){
         var d=s.val();
-        if(hasTournamentData(d)){
-          saveBackup(d);
-        }else{
-          var backup=getBackup();
-          if(backup && !restoring){
-            restoring=true;
-            return ref.set(normalize(backup)).then(function(){
-              saveBackup(backup);
-            }).finally(function(){restoring=false});
-          }
-        }
-      }).catch(function(e){console.error('Durable startup recovery failed:',e)});
+        if(hasTournamentData(d)) saveBackup(d);
+        /* Intentionally do not restore/write anything here. */
+      }).catch(function(e){console.error('Durable backup read failed:',e)});
     });
 
     document.addEventListener('click',function(e){
@@ -826,7 +808,7 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
         locked:!!old.locked,
         raffleComplete:true
       };
-      await ref.set(newData);
+      await ref.update(newData);
       var verify=(await ref.once('value')).val()||{};
       var vt=arr2(verify.teams);
       if(vt.length!==8 || vt.some(function(t,i){return String(t.name)!==teams[i].name || t.group!==teams[i].group}))throw new Error('Firebase did not confirm the saved team names/groups.');
