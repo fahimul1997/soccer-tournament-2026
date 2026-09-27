@@ -2129,3 +2129,101 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
 
 
 
+
+<script>
+/* ROSTER DROPDOWN WATCHDOG
+   This is the final script in the page. If any older renderer replaces the
+   roster selector with an empty <select>, immediately restore its options
+   from Firebase or the already-rendered team editor fields.
+*/
+(function(){
+  var started=false, busy=false;
+
+  function esc(v){return String(v==null?'':v).replace(/[&<>"']/g,function(c){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c];
+  });}
+  function domTeams(){
+    var names=document.querySelectorAll('#teamEditor [data-name]');
+    var groups=document.querySelectorAll('#teamEditor [data-group]');
+    var out=[];
+    if(names.length===8){
+      for(var i=0;i<8;i++){
+        out.push({
+          name:(names[i].value||'').trim()||('Team '+(i+1)),
+          group:(groups[i]&&groups[i].value==='B')?'B':'A'
+        });
+      }
+    }
+    return out;
+  }
+  function fill(teams){
+    var s=document.getElementById('rt');
+    if(!s || busy)return;
+    teams=Array.isArray(teams)?teams:[];
+    if(teams.length<8)teams=domTeams();
+    if(teams.length<8)return;
+
+    var current=s.value;
+    var html='<option value="">Select team</option>';
+    for(var i=0;i<8;i++){
+      var t=teams[i]||{};
+      html+='<option value="'+i+'">'+esc(t.name||('Team '+(i+1)))+
+        ' (Group '+((t.group==='B')?'B':'A')+')</option>';
+    }
+    busy=true;
+    s.innerHTML=html;
+    if(current!=='' && Number(current)>=0 && Number(current)<8)s.value=current;
+    s.disabled=false;
+    s.removeAttribute('disabled');
+    s.style.pointerEvents='auto';
+    s.style.opacity='1';
+    s.style.webkitAppearance='menulist';
+    busy=false;
+  }
+
+  async function firebaseTeams(){
+    try{
+      if(!window.firebase||!firebase.database)return [];
+      var snap=await firebase.database().ref('tournament/teams').once('value');
+      var v=snap.val();
+      if(Array.isArray(v))return v;
+      return Object.values(v||{});
+    }catch(e){return [];}
+  }
+
+  async function repair(){
+    var s=document.getElementById('rt');
+    if(!s || s.options.length>=8)return;
+    var teams=await firebaseTeams();
+    if(teams.length>=8){fill(teams);return;}
+    fill(domTeams());
+  }
+
+  function start(){
+    if(started)return;
+    var s=document.getElementById('rt');
+    if(!s){setTimeout(start,300);return;}
+    started=true;
+
+    repair();
+    setInterval(repair,700);
+
+    var mo=new MutationObserver(function(){
+      var sel=document.getElementById('rt');
+      if(sel && sel.options.length<8)repair();
+    });
+    mo.observe(document.body,{subtree:true,childList:true});
+
+    if(window.firebase&&firebase.database){
+      firebase.database().ref('tournament/teams').on('value',function(snap){
+        var v=snap.val();
+        var teams=Array.isArray(v)?v:Object.values(v||{});
+        fill(teams);
+      });
+    }
+  }
+
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',start);
+  else start();
+})();
+</script>
