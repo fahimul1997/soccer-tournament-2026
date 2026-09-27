@@ -611,4 +611,161 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',bindPreview);
   else bindPreview();
 })();
+</script><script>
+/* FINAL PUBLIC DATA ENGINE
+   This is intentionally independent of the private admin render() closure.
+   It reads Firebase directly and renders Teams, Schedule, and Standings from the same saved data. */
+(function(){
+  function esc2(x){return String(x==null?'':x).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]})}
+  function arr2(x){return Array.isArray(x)?x:Object.values(x||{})}
+  function buildGames2(teams){
+    var A=[],B=[];
+    teams.forEach(function(t,i){(t.group==='B'?B:A).push(i)});
+    var pa=[],pb=[];
+    for(var i=0;i<4;i++)for(var j=i+1;j<4;j++){pa.push({a:teams[A[i]].name,b:teams[A[j]].name});pb.push({a:teams[B[i]].name,b:teams[B[j]].name})}
+    var games=[];
+    for(var slot=0;slot<6;slot++){
+      var mins=600+slot*50,hh=Math.floor(mins/60),mm=mins%60;
+      var tm=((hh+11)%12+1)+':'+String(mm).padStart(2,'0')+' '+(hh<12?'AM':'PM');
+      var a=pa[slot],b=pb[slot];
+      games.push({field:slot%2===0?'Field 1':'Field 2',stage:'Group Stage',time:tm,a:a.a,b:a.b,sa:0,sb:0});
+      games.push({field:slot%2===0?'Field 2':'Field 1',stage:'Group Stage',time:tm,a:b.a,b:b.b,sa:0,sb:0});
+    }
+    games.push({field:'Field 1',stage:'Semifinal 1',time:'3:20 PM',a:'Group A #1',b:'Group B #2',sa:0,sb:0});
+    games.push({field:'Field 2',stage:'Semifinal 2',time:'4:05 PM',a:'Group B #1',b:'Group A #2',sa:0,sb:0});
+    games.push({field:'Field 1',stage:'Final',time:'5:25 PM',a:'Semifinal 1 Winner',b:'Semifinal 2 Winner',sa:0,sb:0});
+    return games;
+  }
+  function getTeamsFromInputs(){
+    var ns=document.querySelectorAll('#teamEditor [data-name]');
+    var gs=document.querySelectorAll('#teamEditor [data-group]');
+    if(ns.length!==8||gs.length!==8)return null;
+    return Array.from(ns).map(function(el,i){return{
+      name:(el.value||'').trim()||('Team '+(i+1)),
+      group:gs[i].value==='B'?'B':'A'
+    }});
+  }
+  function renderPublic2(data){
+    data=data||{};
+    var teams=arr2(data.teams).slice(0,8).map(function(t,i){
+      return {name:String(t&&t.name||('Team '+(i+1))),group:t&&t.group==='B'?'B':'A',roster:arr2(t&&t.roster)};
+    });
+    while(teams.length<8)teams.push({name:'Team '+(teams.length+1),group:teams.length<4?'A':'B',roster:[]});
+    var games=arr2(data.games);
+    var goals=arr2(data.goals),cards=arr2(data.cards);
+    var complete=data.raffleComplete===true || games.length===15;
+
+    /* Teams & Players */
+    var roster=document.getElementById('rosterList');
+    if(roster){
+      roster.innerHTML='<div class="teamsGroups">'+['A','B'].map(function(gr){
+        return '<div class="groupPanel"><div class="groupHead '+(gr==='B'?'b':'')+'"><span>GROUP '+gr+'</span><span>4 TEAMS</span></div>'+
+          teams.filter(function(t){return t.group===gr}).map(function(t,i){
+            var r=t.roster;
+            return '<div class="teamRow"><div class="teamTop"><span class="teamName">'+(i+1)+'. '+esc2(t.name)+'</span><span class="teamMeta"><span class="teamCount">'+r.length+'/15 players</span><span class="statusDot incomplete">Roster open</span></span></div><div class="teamPlayers">'+(r.length?r.map(function(p){return '<span class="playerChip">'+esc2(typeof p==='string'?p:(p&&p.name)||'Player')+'</span>'}).join(''):'<span class="muted">No players registered yet.</span>')+'</div></div>';
+          }).join('')+'</div>';
+      }).join('')+'</div>';
+    }
+
+    /* Schedule */
+    var gamesEl=document.getElementById('games');
+    if(gamesEl){
+      if(!complete){
+        gamesEl.innerHTML='<div class="notice placeholderNotice"><b>Schedule not generated yet.</b> Complete the raffle and press <b>SAVE RAFFLE RESULTS & GENERATE SCHEDULE</b> in Admin Dashboard.</div>';
+      }else{
+        var gg=games.filter(function(g){return g.stage==='Group Stage'});
+        var kk=games.filter(function(g){return g.stage!=='Group Stage'});
+        function gameHtml(g,idx){
+          return '<div class="card gameCard '+(g.stage!=='Group Stage'?'knockout':'')+'"><div><b>'+esc2(g.stage)+'</b> <span class="pill">'+esc2(g.field)+'</span></div><div class="muted" style="margin-top:4px"><b>Time:</b> '+esc2(g.time)+'</div><div class="match" style="margin-top:10px"><b>'+esc2(g.a)+'</b><span class="score">'+Number(g.sa||0)+' — '+Number(g.sb||0)+'</span><b class="right">'+esc2(g.b)+'</b></div><div class="muted">40-minute game • 5-minute halftime • 5-minute changeover/buffer</div></div>';
+        }
+        gamesEl.innerHTML=gg.map(gameHtml).join('')+
+          '<div class="notice"><b>🍽️ Lunch Break:</b> 30 minutes after all 12 group-stage matches. <b>Lunch will be provided.</b></div>'+
+          '<h3 style="margin-top:18px">🏆 Knockout Stage</h3>'+kk.map(gameHtml).join('');
+      }
+    }
+
+    /* Standings */
+    function standings(gr){
+      var rows=teams.filter(function(t){return t.group===gr}).map(function(t){return {t:t.name,gp:0,w:0,d:0,l:0,gf:0,ga:0,p:0}});
+      games.filter(function(g){return g.stage==='Group Stage'}).forEach(function(g){
+        var x=rows.find(function(r){return r.t===g.a}),y=rows.find(function(r){return r.t===g.b});
+        if(!x||!y)return;
+        var sa=Number(g.sa||0),sb=Number(g.sb||0);
+        x.gp++;y.gp++;x.gf+=sa;x.ga+=sb;y.gf+=sb;y.ga+=sa;
+        if(sa>sb){x.w++;y.l++;x.p+=3}else if(sb>sa){y.w++;x.l++;y.p+=3}else{x.d++;y.d++;x.p++;y.p++}
+      });
+      rows.forEach(function(r){r.gd=r.gf-r.ga});
+      rows.sort(function(a,b){return b.p-a.p||b.gd-a.gd||b.gf-a.gf||a.t.localeCompare(b.t)});
+      return rows.map(function(r,i){return '<tr><td>'+(i+1)+'</td><td><b>'+esc2(r.t)+'</b></td><td>'+r.gp+'</td><td>'+r.w+'</td><td>'+r.d+'</td><td>'+r.l+'</td><td>'+r.gf+'</td><td>'+r.ga+'</td><td>'+r.gd+'</td><td><b>'+r.p+'</b></td></tr>'}).join('');
+    }
+    var sa=document.getElementById('sa'),sb=document.getElementById('sb');
+    if(sa)sa.innerHTML=standings('A');
+    if(sb)sb.innerHTML=standings('B');
+    var st=document.getElementById('standingsStatus');
+    if(st){st.className='notice '+(complete?'completeNotice':'placeholderNotice');st.innerHTML=complete?'<b>✅ Official group standings:</b> The team draw is complete and Group A and Group B assignments are finalized.':'<b>📌 Placeholder standings:</b> Complete the team draw and generate the schedule first.'}
+
+    window.__PUBLIC_TOURNAMENT_DATA=data;
+  }
+
+  async function refreshPublic2(){
+    try{
+      if(!window.firebase || !firebase.database)return;
+      var snap=await firebase.database().ref('tournament').once('value');
+      renderPublic2(snap.val()||{});
+    }catch(e){console.error('Public Firebase refresh failed:',e)}
+  }
+
+  async function saveFromAdmin2(button){
+    if(button.disabled)return;
+    var authUser=window.firebase&&firebase.auth&&firebase.auth().currentUser;
+    if(!authUser){alert('Admin login required. Please log in again.');return}
+    var inputTeams=getTeamsFromInputs();
+    if(!inputTeams){alert('The 8 team fields did not load. Please refresh the page.');return}
+    var A=inputTeams.filter(function(t){return t.group==='A'}),B=inputTeams.filter(function(t){return t.group==='B'});
+    if(A.length!==4||B.length!==4){alert('Exactly 4 teams must be in each group. Group A: '+A.length+'/4. Group B: '+B.length+'/4.');return}
+    var seen={};
+    for(var i=0;i<inputTeams.length;i++){var k=inputTeams[i].name.toLowerCase();if(seen[k]){alert('Team names must be unique.');return}seen[k]=true}
+    button.disabled=true;button.textContent='SAVING...';
+    try{
+      var ref=firebase.database().ref('tournament'),snap=await ref.once('value'),old=snap.val()||{};
+      var oldTeams=arr2(old.teams);
+      var teams=inputTeams.map(function(t,i){
+        var prior=oldTeams[i]||{};
+        return {name:t.name,group:t.group,roster:arr2(prior.roster),complete:!!prior.complete};
+      });
+      var games=buildGames2(teams);
+      var newData={
+        teams:teams,
+        games:games,
+        goals:arr2(old.goals),
+        cards:arr2(old.cards),
+        locked:!!old.locked,
+        raffleComplete:true
+      };
+      await ref.set(newData);
+      var verify=(await ref.once('value')).val()||{};
+      var vt=arr2(verify.teams);
+      if(vt.length!==8 || vt.some(function(t,i){return String(t.name)!==teams[i].name || t.group!==teams[i].group}))throw new Error('Firebase did not confirm the saved team names/groups.');
+      renderPublic2(verify);
+      alert('SUCCESS: Team names, groups, schedule, and standings are saved and published.');
+      if(typeof showTournamentTab==='function')showTournamentTab('schedule');
+    }catch(e){console.error(e);alert('SAVE FAILED: '+(e&&e.message||'Could not save tournament data.'))}
+    finally{button.disabled=false;button.textContent=button.id==='saveTeams'?'SAVE RAFFLE RESULTS & GENERATE SCHEDULE':'SAVE TEAM NAME CHANGES'}
+  }
+
+  function bindFinal2(){
+    var save=document.getElementById('saveTeams'),rename=document.getElementById('saveTeamNames');
+    if(save)save.onclick=function(e){e.preventDefault();e.stopImmediatePropagation();saveFromAdmin2(save)};
+    if(rename)rename.onclick=function(e){e.preventDefault();e.stopImmediatePropagation();saveFromAdmin2(rename)};
+    document.querySelectorAll('.tabs [data-tab]').forEach(function(tab){
+      tab.addEventListener('click',function(){setTimeout(refreshPublic2,50)});
+    });
+    document.querySelectorAll('#teamEditor [data-name],#teamEditor [data-group]').forEach(function(el){
+      el.addEventListener('input',function(){var t=getTeamsFromInputs();if(!t)return;var A=t.filter(function(x){return x.group==='A'}),B=t.filter(function(x){return x.group==='B'});if(A.length===4&&B.length===4)renderPublic2({teams:t,games:buildGames2(t),goals:[],cards:[],raffleComplete:true})});
+      el.addEventListener('change',function(){var t=getTeamsFromInputs();if(!t)return;var A=t.filter(function(x){return x.group==='A'}),B=t.filter(function(x){return x.group==='B'});if(A.length===4&&B.length===4)renderPublic2({teams:t,games:buildGames2(t),goals:[],cards:[],raffleComplete:true})});
+    });
+    refreshPublic2();
+  }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',bindFinal2);else bindFinal2();
+})();
 </script>
