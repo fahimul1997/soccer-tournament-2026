@@ -63,9 +63,9 @@ document.addEventListener('DOMContentLoaded',function(){
 });
 </script><script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script><script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script><script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script><script src="firebase-config.js"></script>
 <script>
-(()=>{const $=id=>document.getElementById(id);let db,auth,user=null,selectedGame=null,state={teams:[],games:[],goals:[],cards:[],locked:false,raffleComplete:false,};const empty=()=>({teams:Array.from({length:8},(_,i)=>({name:'Team '+(i+1),group:i<4?'A':'B',roster:[],complete:false})),games:[],goals:[],cards:[],locked:false});const esc=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));const teams=()=>'<option value="">Select team</option>'+state.teams.map((t,i)=>'<option value="'+i+'">'+esc(t.name)+' (Group '+t.group+')</option>').join('');const players=i=>i!==''?(state.teams[+i]?.roster||[]):[];const popt=i=>'<option value="">Select player</option>'+players(i).map((p,j)=>'<option value="'+j+'">'+esc(p)+'</option>').join('');const goalPopt=i=>popt(i)+'<option value="__NO_SCORER__">No scorer (forfeit)</option>';function gameOpts(){return '<option value="">Select game</option>'+state.games.map((g,i)=>'<option value="'+i+'">Game '+(i+1)+' • '+esc(g.time||'')+' • '+esc(g.field||'')+' • '+esc(resolvedGameTeams(g)[0])+' vs '+esc(resolvedGameTeams(g)[1])+'</option>').join('')}function stats(group){let a=state.teams.filter(t=>t.group===group).map(t=>({t:t.name,gp:0,w:0,d:0,l:0,gf:0,ga:0,p:0}));state.games.filter(g=>g.stage==='Group Stage').forEach(g=>{let x=a.find(z=>z.t===g.a),y=a.find(z=>z.t===g.b);if(!x||!y)return;x.gp++;y.gp++;x.gf+=+g.sa;x.ga+=+g.sb;y.gf+=+g.sb;y.ga+=+g.sa;if(g.sa>g.sb){x.w++;y.l++;x.p+=3}else if(g.sb>g.sa){y.w++;x.l++;y.p+=3}else{x.d++;y.d++;x.p++;y.p++}});a.forEach(x=>x.gd=x.gf-x.ga);return a.sort((x,y)=>y.p-x.p||y.gd-x.gd||y.gf-x.gf||x.t.localeCompare(y.t))}function knockoutLabel(g){if(g.stage==='Semifinal 1')return [stats('A')[0]?.t||'Group A #1',stats('B')[1]?.t||'Group B #2'];if(g.stage==='Semifinal 2')return [stats('B')[0]?.t||'Group B #1',stats('A')[1]?.t||'Group A #2'];if(g.stage==='Final'){let sf1=state.games.find(x=>x.stage==='Semifinal 1'),sf2=state.games.find(x=>x.stage==='Semifinal 2');let a=(sf1&&sf1.sa>sf1.sb)?sf1.a:(sf1&&sf1.sb>sf1.sa)?sf1.b:'Semifinal 1 Winner';let b=(sf2&&sf2.sa>sf2.sb)?sf2.a:(sf2&&sf2.sb>sf2.sa)?sf2.b:'Semifinal 2 Winner';return [a,b]}return [g.a,g.b]}function resolvedGameTeams(g){return knockoutLabel(g)}function render(){
+(()=>{const $=id=>document.getElementById(id);let db,auth,user=null,selectedGame=null,state={teams:[],games:[],goals:[],cards:[],locked:false,raffleComplete:false,};const empty=()=>({teams:Array.from({length:8},(_,i)=>({name:'Team '+(i+1),group:i<4?'A':'B',roster:[],complete:false})),games:[],goals:[],cards:[],locked:false});const esc=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));const teams=()=>'<option value="">Select team</option>'+state.teams.map((t,i)=>'<option value="'+i+'">'+esc(t.name)+' (Group '+t.group+')</option>').join('');const players=i=>i!==''?(state.teams[+i]?.roster||[]):[];const popt=i=>'<option value="">Select player</option>'+players(i).map((p,j)=>'<option value="'+j+'">'+esc(p)+'</option>').join('');const goalPopt=i=>popt(i)+'<option value="__NO_SCORER__">No scorer (forfeit)</option>';function gameOpts(){return '<option value="">Select game</option>'+state.games.map((g,i)=>'<option value="'+i+'">Game '+(i+1)+' • '+esc(g.time||'')+' • '+esc(g.field||'')+' • '+esc(resolvedGameTeams(g)[0])+' vs '+esc(resolvedGameTeams(g)[1])+'</option>').join('')}function stats(group){let a=state.teams.filter(t=>t.group===group).map(t=>({t:t.name,gp:0,w:0,d:0,l:0,gf:0,ga:0,p:0}));state.games.filter(g=>g.stage==='Group Stage'&&g.played===true).forEach(g=>{let x=a.find(z=>z.t===g.a),y=a.find(z=>z.t===g.b);if(!x||!y)return;x.gp++;y.gp++;x.gf+=+g.sa;x.ga+=+g.sb;y.gf+=+g.sb;y.ga+=+g.sa;if(g.sa>g.sb){x.w++;y.l++;x.p+=3}else if(g.sb>g.sa){y.w++;x.l++;y.p+=3}else{x.d++;y.d++;x.p++;y.p++}});a.forEach(x=>x.gd=x.gf-x.ga);return a.sort((x,y)=>y.p-x.p||y.gd-x.gd||y.gf-x.gf||x.t.localeCompare(y.t))}function knockoutLabel(g){if(g.stage==='Semifinal 1')return [stats('A')[0]?.t||'Group A #1',stats('B')[1]?.t||'Group B #2'];if(g.stage==='Semifinal 2')return [stats('B')[0]?.t||'Group B #1',stats('A')[1]?.t||'Group A #2'];if(g.stage==='Final'){let sf1=state.games.find(x=>x.stage==='Semifinal 1'),sf2=state.games.find(x=>x.stage==='Semifinal 2');let a=(sf1&&sf1.sa>sf1.sb)?sf1.a:(sf1&&sf1.sb>sf1.sa)?sf1.b:'Semifinal 1 Winner';let b=(sf2&&sf2.sa>sf2.sb)?sf2.a:(sf2&&sf2.sb>sf2.sa)?sf2.b:'Semifinal 2 Winner';return [a,b]}return [g.a,g.b]}function resolvedGameTeams(g){return knockoutLabel(g)}function render(){
 window.__TOURNAMENT_STATE=state;
-state.teams=(Array.isArray(state.teams)?state.teams:Object.values(state.teams||{})).filter(Boolean);state.teams=Array.from({length:8},(_,i)=>{let t=state.teams[i]||{};let roster=(Array.isArray(t.roster)?t.roster:Object.values(t.roster||{})).filter(Boolean).map(p=>typeof p==='string'?p:(p&&p.name?String(p.name):String(p||''))).filter(Boolean);return {name:String(t.name||('Team '+(i+1))),group:t.group==='B'?'B':'A',roster,complete:!!t.complete}});state.games=(Array.isArray(state.games)?state.games:Object.values(state.games||{})).filter(g=>g&&typeof g==='object').map(g=>({field:g.field||'',stage:g.stage||'Group Stage',date:g.date||'',time:g.time||'',a:g.a||'TBD',b:g.b||'TBD',sa:Number.isFinite(+g.sa)?+g.sa:0,sb:Number.isFinite(+g.sb)?+g.sb:0}));state.goals=(Array.isArray(state.goals)?state.goals:Object.values(state.goals||{})).filter(Boolean);state.cards=(Array.isArray(state.cards)?state.cards:Object.values(state.cards||{})).filter(Boolean);state.locked=!!state.locked;state.raffleComplete=state.raffleComplete===true||state.games.length===15;
+state.teams=(Array.isArray(state.teams)?state.teams:Object.values(state.teams||{})).filter(Boolean);state.teams=Array.from({length:8},(_,i)=>{let t=state.teams[i]||{};let roster=(Array.isArray(t.roster)?t.roster:Object.values(t.roster||{})).filter(Boolean).map(p=>typeof p==='string'?p:(p&&p.name?String(p.name):String(p||''))).filter(Boolean);return {name:String(t.name||('Team '+(i+1))),group:t.group==='B'?'B':'A',roster,complete:!!t.complete}});state.games=(Array.isArray(state.games)?state.games:Object.values(state.games||{})).filter(g=>g&&typeof g==='object').map(g=>({field:g.field||'',stage:g.stage||'Group Stage',date:g.date||'',time:g.time||'',a:g.a||'TBD',b:g.b||'TBD',sa:Number.isFinite(+g.sa)?+g.sa:0,sb:Number.isFinite(+g.sb)?+g.sb:0,played:g.played===true}));state.goals=(Array.isArray(state.goals)?state.goals:Object.values(state.goals||{})).filter(Boolean);state.cards=(Array.isArray(state.cards)?state.cards:Object.values(state.cards||{})).filter(Boolean);state.locked=!!state.locked;state.raffleComplete=state.raffleComplete===true||state.games.length===15;
 if(state.games.length===15){
   var canonicalA=state.teams.filter(function(t){return t.group==='A'}).map(function(t){return t.name});
   var canonicalB=state.teams.filter(function(t){return t.group==='B'}).map(function(t){return t.name});
@@ -139,7 +139,7 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
     (selectedGame===i?'<label style="display:inline-flex;align-items:center;gap:6px">Score A <input data-score-a="'+i+'" type="number" min="0" value="'+(+g.sa||0)+'" style="width:80px"></label><label style="display:inline-flex;align-items:center;gap:6px">Score B <input data-score-b="'+i+'" type="number" min="0" value="'+(+g.sb||0)+'" style="width:80px"></label><button data-save-score="'+i+'">SAVE SCORE</button>':'')+'</div></div>').join('');
   document.querySelectorAll('[data-select-game]').forEach(b=>b.onclick=()=>{selectedGame=+b.dataset.selectGame;adminRender()});
   $('setActiveGame').onclick=()=>{let v=$('activeGameSelect').value;if(v==='')return alert('Select the game being played.');selectedGame=+v;adminRender()};
-  document.querySelectorAll('[data-save-score]').forEach(b=>b.onclick=async()=>{let i=+b.dataset.saveScore;state.games[i].sa=Math.max(0,+document.querySelector('[data-score-a="'+i+'"]').value||0);state.games[i].sb=Math.max(0,+document.querySelector('[data-score-b="'+i+'"]').value||0);await save()});
+  document.querySelectorAll('[data-save-score]').forEach(b=>b.onclick=async()=>{let i=+b.dataset.saveScore;state.games[i].sa=Math.max(0,+document.querySelector('[data-score-a="'+i+'"]').value||0);state.games[i].sb=Math.max(0,+document.querySelector('[data-score-b="'+i+'"]').value||0);state.games[i].played=true;await save()});
 }async function save(){if(!user){alert('Admin login required.');return false}try{await db.ref('tournament').set(state);render();return true}catch(e){console.error('Save failed:',e);alert('Could not save the change. Please check your connection and try again.');return false}}$('cancel').onclick=()=>{var modal=$('loginModal'),email=$('email'),password=$('password'),err=$('loginError'),btn=$('login');if(modal)modal.classList.add('hidden');if(email)email.value='';if(password)password.value='';if(err)err.textContent='';if(btn){btn.disabled=false;btn.textContent='Login'}};async function doAdminLogin(){var btn=$('login'),err=$('loginError'),email=$('email').value.trim(),password=$('password').value;if(!email||!password){err.textContent='❌ Enter your admin email and password.';err.style.color='#c40012';err.style.fontWeight='700';return}if(btn.disabled)return;btn.disabled=true;btn.textContent='Checking...';err.textContent='Connecting to Firebase...';err.style.color='#062f63';err.style.fontWeight='700';try{if(!window.firebase||!firebase.auth)throw new Error('Firebase Authentication did not load. Please refresh the page.');if(!auth){auth=firebase.auth()}await auth.signInWithEmailAndPassword(email,password);err.textContent='✅ Login successful. Opening Admin Dashboard...';err.style.color='#16803c';setTimeout(function(){$('loginModal').classList.add('hidden');showTournamentTab('admin')},150)}catch(e){console.error('Admin login failed:',e);var code=e&&e.code||'';var msg;if(code==='auth/unauthorized-domain')msg='❌ This website is not authorized for Firebase Login.';else if(code==='auth/invalid-credential'||code==='auth/wrong-password'||code==='auth/user-not-found')msg='❌ Incorrect admin email or password.';else if(code==='auth/invalid-email')msg='❌ Please enter a valid email address.';else if(code==='auth/too-many-requests')msg='❌ Too many login attempts. Please wait a few minutes and try again.';else if(code==='auth/user-disabled')msg='❌ This admin account is disabled in Firebase.';else if(code==='auth/operation-not-allowed')msg='❌ Email/Password sign-in is not enabled in Firebase Authentication.';else msg='❌ Login failed: '+(e&&e.message?e.message:'Unknown error.');err.textContent=msg;err.style.color='#c40012';err.style.fontWeight='700';alert(msg)}finally{btn.disabled=false;btn.textContent='Login'}}$('login').onclick=doAdminLogin;$('email').addEventListener('keydown',function(e){if(e.key==='Enter')doAdminLogin()});$('password').addEventListener('keydown',function(e){if(e.key==='Enter')doAdminLogin()});$('logout').onclick=async function(){
   var btn=$('logout');
   if(btn.disabled)return;
@@ -628,12 +628,12 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
       var mins=600+slot*50,hh=Math.floor(mins/60),mm=mins%60;
       var tm=((hh+11)%12+1)+':'+String(mm).padStart(2,'0')+' '+(hh<12?'AM':'PM');
       var a=pa[slot],b=pb[slot];
-      games.push({field:slot%2===0?'Field 1':'Field 2',stage:'Group Stage',time:tm,a:a.a,b:a.b,sa:0,sb:0});
-      games.push({field:slot%2===0?'Field 2':'Field 1',stage:'Group Stage',time:tm,a:b.a,b:b.b,sa:0,sb:0});
+      games.push({field:slot%2===0?'Field 1':'Field 2',stage:'Group Stage',time:tm,a:a.a,b:a.b,sa:0,sb:0,played:false});
+      games.push({field:slot%2===0?'Field 2':'Field 1',stage:'Group Stage',time:tm,a:b.a,b:b.b,sa:0,sb:0,played:false});
     }
-    games.push({field:'Field 1',stage:'Semifinal 1',time:'3:20 PM',a:'Group A #1',b:'Group B #2',sa:0,sb:0});
-    games.push({field:'Field 2',stage:'Semifinal 2',time:'4:05 PM',a:'Group B #1',b:'Group A #2',sa:0,sb:0});
-    games.push({field:'Field 1',stage:'Final',time:'5:25 PM',a:'Semifinal 1 Winner',b:'Semifinal 2 Winner',sa:0,sb:0});
+    games.push({field:'Field 1',stage:'Semifinal 1',time:'3:20 PM',a:'Group A #1',b:'Group B #2',sa:0,sb:0,played:false});
+    games.push({field:'Field 2',stage:'Semifinal 2',time:'4:05 PM',a:'Group B #1',b:'Group A #2',sa:0,sb:0,played:false});
+    games.push({field:'Field 1',stage:'Final',time:'5:25 PM',a:'Semifinal 1 Winner',b:'Semifinal 2 Winner',sa:0,sb:0,played:false});
     return games;
   }
   function getTeamsFromInputs(){
@@ -690,7 +690,7 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
       games.filter(function(g){return g.stage==='Group Stage'}).forEach(function(g){
         var x=rows.find(function(r){return r.t===g.a}),y=rows.find(function(r){return r.t===g.b});
         if(!x||!y)return;
-        var sa=Number(g.sa||0),sb=Number(g.sb||0);
+        if(g.played!==true)return; var sa=Number(g.sa||0),sb=Number(g.sb||0);
         x.gp++;y.gp++;x.gf+=sa;x.ga+=sb;y.gf+=sb;y.ga+=sa;
         if(sa>sb){x.w++;y.l++;x.p+=3}else if(sb>sa){y.w++;x.l++;y.p+=3}else{x.d++;y.d++;x.p++;y.p++}
       });
@@ -767,5 +767,33 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
     refreshPublic2();
   }
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',bindFinal2);else bindFinal2();
+})();
+</script><script>
+/* Standings must count only games explicitly saved as played. */
+(function(){
+  function fixPublicStandings(){
+    var data=window.__PUBLIC_TOURNAMENT_DATA;
+    if(!data)return;
+    var teams=Array.isArray(data.teams)?data.teams:Object.values(data.teams||{});
+    var games=Array.isArray(data.games)?data.games:Object.values(data.games||{});
+    function esc3(x){return String(x==null?'':x).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]})}
+    function table(gr){
+      var rows=teams.filter(function(t){return t.group===gr}).map(function(t){return {t:t.name,gp:0,w:0,d:0,l:0,gf:0,ga:0,p:0}});
+      games.filter(function(g){return g.stage==='Group Stage'&&g.played===true}).forEach(function(g){
+        var x=rows.find(function(r){return r.t===g.a}),y=rows.find(function(r){return r.t===g.b});
+        if(!x||!y)return;
+        var a=Number(g.sa||0),b=Number(g.sb||0);
+        x.gp++;y.gp++;x.gf+=a;x.ga+=b;y.gf+=b;y.ga+=a;
+        if(a>b){x.w++;y.l++;x.p+=3}else if(b>a){y.w++;x.l++;y.p+=3}else{x.d++;y.d++;x.p++;y.p++}
+      });
+      rows.forEach(function(r){r.gd=r.gf-r.ga});
+      rows.sort(function(a,b){return b.p-a.p||b.gd-a.gd||b.gf-a.gf||a.t.localeCompare(b.t)});
+      return rows.map(function(r,i){return '<tr><td>'+ (i+1) +'</td><td><b>'+esc3(r.t)+'</b></td><td>'+r.gp+'</td><td>'+r.w+'</td><td>'+r.d+'</td><td>'+r.l+'</td><td>'+r.gf+'</td><td>'+r.ga+'</td><td>'+r.gd+'</td><td><b>'+r.p+'</b></td></tr>'}).join('');
+    }
+    var a=document.getElementById('sa'),b=document.getElementById('sb');
+    if(a)a.innerHTML=table('A'); if(b)b.innerHTML=table('B');
+  }
+  window.__fixPublicStandings=fixPublicStandings;
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',fixPublicStandings);else fixPublicStandings();
 })();
 </script>
