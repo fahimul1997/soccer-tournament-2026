@@ -1106,6 +1106,8 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
         var kk=games.filter(function(g){return g.stage!=='Group Stage'});
         function gameHtml(g,idx){
           var gs=goals.filter(function(x){return Number(x&&x.game)===idx;});
+          var cs=cards.filter(function(x){return Number(x&&x.game)===idx;});
+
           var scorerHtml=gs.length?
             '<div class="scorersBox"><b>⚽ Goal Scorers</b><br>'+
             gs.map(function(x){
@@ -1113,7 +1115,24 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
                 (x.time&&x.time!=='-'?' '+esc2(x.time):'')+'</span>';
             }).join('<br>')+'</div>':
             '<div class="scorersBox muted">No goals recorded yet.</div>';
-          return '<div class="card gameCard '+(g.stage!=='Group Stage'?'knockout':'')+'"><div><b>'+esc2(g.stage)+'</b> <span class="pill">'+esc2(g.field)+'</span></div><div class="muted" style="margin-top:4px"><b>Time:</b> '+esc2(g.time)+'</div><div class="match" style="margin-top:10px"><b>'+esc2(g.a)+'</b><span class="score">'+Number(g.sa||0)+' — '+Number(g.sb||0)+'</span><b class="right">'+esc2(g.b)+'</b></div><div class="muted">40-minute game • 5-minute halftime • 5-minute changeover/buffer</div>'+scorerHtml+'</div>';
+
+          var cardHtml=cs.length?
+            '<div class="scorersBox" style="margin-top:8px"><b>🟨🟥 Cards</b><br>'+
+            cs.map(function(x){
+              var icon=x.type==='red'?'🟥':'🟨';
+              var label=x.type==='red'?'Red':'Yellow';
+              return '<span>'+icon+' <b>'+esc2(x.team||'')+':</b> '+esc2(x.player||'Unknown player')+
+                ' — '+label+(x.time&&x.time!=='-'?' '+esc2(x.time):'')+'</span>';
+            }).join('<br>')+'</div>':
+            '<div class="scorersBox muted" style="margin-top:8px">No cards recorded yet.</div>';
+
+          return '<div class="card gameCard '+(g.stage!=='Group Stage'?'knockout':'')+'">'+
+            '<div><b>'+esc2(g.stage)+'</b> <span class="pill">'+esc2(g.field)+'</span></div>'+
+            '<div class="muted" style="margin-top:4px"><b>Time:</b> '+esc2(g.time)+'</div>'+
+            '<div class="match" style="margin-top:10px"><b>'+esc2(g.a)+'</b><span class="score">'+Number(g.sa||0)+' — '+Number(g.sb||0)+'</span><b class="right">'+esc2(g.b)+'</b></div>'+
+            '<div class="muted">40-minute game • 5-minute halftime • 5-minute changeover/buffer</div>'+
+            scorerHtml+cardHtml+
+          '</div>';
         }
         gamesEl.innerHTML=gg.map(gameHtml).join('')+
           '<div class="notice"><b>🍽️ Lunch Break:</b> 30 minutes after all 12 group-stage matches. <b>Lunch will be provided.</b></div>'+
