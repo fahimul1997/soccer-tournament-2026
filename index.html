@@ -1663,3 +1663,99 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
   }
 })();
 </script>
+
+<script>
+/* FINAL ADMIN TEAM NAME SYNC
+   Firebase is the single source of truth for the eight generated teams.
+   After the raffle is saved, the Admin team fields must match the public tabs.
+   This layer only rehydrates the fields from Firebase; it never writes data.
+*/
+(function(){
+  var started=false, timer=null, lastSignature='';
+
+  function arr(v){return Array.isArray(v)?v:Object.values(v||{});}
+
+  function sync(data){
+    var editor=document.getElementById('teamEditor');
+    if(!editor)return;
+
+    var teams=arr(data&&data.teams).slice(0,8);
+    if(teams.length!==8)return;
+
+    var nameEls=document.querySelectorAll('#teamEditor [data-name]');
+    var groupEls=document.querySelectorAll('#teamEditor [data-group]');
+    if(nameEls.length!==8 || groupEls.length!==8)return;
+
+    var signature=teams.map(function(t,i){
+      return String(t&&t.name||('Team '+(i+1)))+'|'+(t&&t.group==='B'?'B':'A');
+    }).join('||');
+
+    if(signature===lastSignature)return;
+
+    /* Never overwrite a team name while the admin is actively typing it. */
+    var active=document.activeElement;
+    if(active && active.closest && active.closest('#teamEditor')){
+      return;
+    }
+
+    teams.forEach(function(t,i){
+      var name=String(t&&t.name||('Team '+(i+1)));
+      var group=t&&t.group==='B'?'B':'A';
+      nameEls[i].value=name;
+      groupEls[i].value=group;
+
+      /* Group assignments are locked once the raffle has been generated. */
+      groupEls[i].disabled=data.raffleComplete===true;
+    });
+
+    lastSignature=signature;
+
+    var status=document.getElementById('setupStatus');
+    if(status && data.raffleComplete===true){
+      status.innerHTML='<b>Raffle Status:</b> <span style="color:#16803c">🟢 COMPLETE</span> &nbsp; <b>Team names and Group A/B assignments are synchronized with the public tournament data.</b>';
+    }
+  }
+
+  function start(){
+    if(started)return;
+    if(!window.firebase || !firebase.database){
+      setTimeout(start,500);
+      return;
+    }
+    started=true;
+
+    var ref=firebase.database().ref('tournament');
+
+    ref.on('value',function(snap){
+      sync(snap.val()||{});
+    });
+
+    ref.once('value').then(function(snap){
+      sync(snap.val()||{});
+    });
+
+    /* Also resync after leaving a team-name field, so the Admin view
+       immediately returns to the saved Firebase value after editing. */
+    document.addEventListener('focusout',function(e){
+      if(e.target && e.target.closest && e.target.closest('#teamEditor')){
+        setTimeout(function(){
+          ref.once('value').then(function(snap){sync(snap.val()||{});});
+        },100);
+      }
+    },true);
+
+    if(timer)clearInterval(timer);
+    timer=setInterval(function(){
+      var editor=document.getElementById('teamEditor');
+      if(!editor)return;
+      ref.once('value').then(function(snap){sync(snap.val()||{});}).catch(function(){});
+    },2000);
+  }
+
+  if(document.readyState==='loading'){
+    document.addEventListener('DOMContentLoaded',start);
+  }else{
+    start();
+  }
+})();
+</script>
