@@ -480,28 +480,27 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
             ?{game:gi,team:teams[ti].name,player:player,time:$('goalTime').value||'-'}
             :{game:gi,team:teams[ti].name,player:player,type:$('cardType').value,time:$('cardTime').value||'-'};
 
+          /* Store each event as its own Firebase child. This avoids array
+             transaction/overwrite issues and safely supports multiple events. */
           const listRef=ref().child(goal?'goals':'cards');
-          const tx=await listRef.transaction(function(current){
-            const list=arr(current);
-            list.push(item);
-            return list;
-          });
-          if(!tx.committed)throw Error('Firebase did not commit the '+(goal?'goal':'card')+'.');
+          const newRef=listRef.push();
+          await newRef.set(item);
 
-          const verifySnap=await listRef.once('value');
-          const verified=arr(verifySnap.val());
-          const found=verified.some(function(x){
-            return Number(x&&x.game)===gi &&
-              String(x&&x.team||'')===String(item.team) &&
-              String(x&&x.player||'')===String(item.player) &&
-              (!goal ? String(x&&x.type||'')===String(item.type) : true) &&
-              String(x&&x.time||'-')===String(item.time||'-');
-          });
-          if(!found)throw Error('Firebase saved the change but verification failed. Please try again.');
+          const verifySnap=await newRef.once('value');
+          const saved=verifySnap.val();
+          if(!saved ||
+             Number(saved.game)!==gi ||
+             String(saved.team||'')!==String(item.team) ||
+             String(saved.player||'')!==String(item.player) ||
+             (!goal && String(saved.type||'')!==String(item.type)) ||
+             String(saved.time||'-')!==String(item.time||'-')){
+            await newRef.remove();
+            throw Error('Firebase did not verify the '+(goal?'goal':'card')+' record. Please try again.');
+          }
 
           await publish();
 
-          const status=$(goal?'activeGameStatus':'activeGameStatus');
+          const status=$('activeGameStatus');
           if(status)status.textContent=(goal?'✓ Goal saved':'✓ Card saved')+' — '+item.team+(item.player?' • '+item.player:'');
           alert((goal?'Goal':'Card')+' saved successfully. Public Schedule & Results and '+(goal?'Scorers':'Cards & Suspensions')+' have been updated.');
         }
