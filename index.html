@@ -1101,9 +1101,11 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
       if(!complete){
         gamesEl.innerHTML='<div class="notice placeholderNotice"><b>Schedule not generated yet.</b> Complete the raffle and press <b>SAVE RAFFLE RESULTS & GENERATE SCHEDULE</b> in Admin Dashboard.</div>';
       }else{
-        var gg=games.filter(function(g){return g.stage==='Group Stage'});
-        var kk=games.filter(function(g){return g.stage!=='Group Stage'});
-        function gameHtml(g,idx){
+        /* Preserve the real Firebase game index when rendering filtered groups. */
+        var gg=games.map(function(g,i){return {g:g,idx:i};}).filter(function(x){return x.g.stage==='Group Stage'});
+        var kk=games.map(function(g,i){return {g:g,idx:i};}).filter(function(x){return x.g.stage!=='Group Stage'});
+        function gameHtml(item){
+          var g=item.g, idx=item.idx;
           var gs=goals.filter(function(x){return Number(x&&x.game)===idx;});
           var cs=cards.filter(function(x){return Number(x&&x.game)===idx;});
 
