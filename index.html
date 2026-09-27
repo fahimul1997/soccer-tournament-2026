@@ -720,6 +720,22 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
     window.__PUBLIC_TOURNAMENT_DATA=data;
   }
 
+  /* REAL-TIME PUBLIC SYNC: every Firebase change is immediately reflected in every public tab. */
+  function startRealtimePublicSync(){
+    try{
+      if(!window.firebase || !firebase.database)return;
+      var liveRef=firebase.database().ref('tournament');
+      liveRef.off('value',window.__publicRealtimeHandler||undefined);
+      window.__publicRealtimeHandler=function(snap){
+        var data=snap.val()||{};
+        window.__PUBLIC_TOURNAMENT_DATA=data;
+        renderPublic2(data);
+        if(typeof window.__fixPublicStandings==='function')window.__fixPublicStandings();
+      };
+      liveRef.on('value',window.__publicRealtimeHandler);
+    }catch(e){console.error('Public realtime sync failed:',e)}
+  }
+
   window.__refreshPublic2=async function refreshPublic2(){
     try{
       if(!window.firebase || !firebase.database)return;
@@ -778,6 +794,7 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
       el.addEventListener('change',function(){var t=getTeamsFromInputs();if(!t)return;var A=t.filter(function(x){return x.group==='A'}),B=t.filter(function(x){return x.group==='B'});if(A.length===4&&B.length===4)renderPublic2({teams:t,games:buildGames2(t),goals:[],cards:[],raffleComplete:true})});
     });
     refreshPublic2();
+    startRealtimePublicSync();
   }
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',bindFinal2);else bindFinal2();
 })();
