@@ -331,4 +331,82 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',installRaffleSave);
   else installRaffleSave();
 })();
+</script><script>
+(function(){
+  function installTeamNameSync(){
+    var btn=document.getElementById('saveTeamNames');
+    if(!btn || !window.firebase || !firebase.database) return;
+    btn.onclick=async function(e){
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      if(btn.disabled)return;
+      var currentUser=(window.firebase.auth&&firebase.auth().currentUser)||null;
+      if(!currentUser){alert('Admin login required. Please log in again.');return;}
+      var inputs=document.querySelectorAll('#teamEditor [data-name]');
+      if(inputs.length!==8){alert('The 8 team name fields did not load correctly. Please refresh the page.');return;}
+      var newNames=Array.from(inputs).map(function(el,i){
+        return (el.value||'').trim() || ('Team '+(i+1));
+      });
+      var seen={};
+      for(var i=0;i<newNames.length;i++){
+        var key=newNames[i].toLowerCase();
+        if(seen[key]){alert('Team names must be unique. "'+newNames[i]+'" is repeated.');return;}
+        seen[key]=true;
+      }
+      btn.disabled=true;
+      btn.textContent='SAVING...';
+      try{
+        var ref=firebase.database().ref('tournament');
+        var snap=await ref.once('value');
+        var data=snap.val()||{};
+        var teams=Array.isArray(data.teams)?data.teams:Object.values(data.teams||{});
+        var games=Array.isArray(data.games)?data.games:Object.values(data.games||{});
+        var goals=Array.isArray(data.goals)?data.goals:Object.values(data.goals||{});
+        var cards=Array.isArray(data.cards)?data.cards:Object.values(data.cards||{});
+        if(teams.length!==8){throw new Error('The tournament does not contain all 8 teams.');}
+        var oldNames=teams.map(function(t,i){return String((t&&t.name)||('Team '+(i+1)))}); 
+        var rename={};
+        teams=teams.map(function(t,i){
+          var copy=Object.assign({},t);
+          copy.name=newNames[i];
+          rename[oldNames[i]]=newNames[i];
+          return copy;
+        });
+        games=games.map(function(g){
+          var copy=Object.assign({},g);
+          if(rename[copy.a])copy.a=rename[copy.a];
+          if(rename[copy.b])copy.b=rename[copy.b];
+          return copy;
+        });
+        goals=goals.map(function(g){
+          var copy=Object.assign({},g);
+          if(rename[copy.team])copy.team=rename[copy.team];
+          return copy;
+        });
+        cards=cards.map(function(g){
+          var copy=Object.assign({},g);
+          if(rename[copy.team])copy.team=rename[copy.team];
+          return copy;
+        });
+        data.teams=teams;
+        data.games=games;
+        data.goals=goals;
+        data.cards=cards;
+        await ref.set(data);
+        state=data;
+        if(typeof window.__refreshTournamentUI==='function')await window.__refreshTournamentUI();
+        if(typeof adminRender==='function' && currentUser)adminRender();
+        alert('Team names updated successfully across Teams & Players, Schedule & Results, Standings, Scorers, Cards & Suspensions, and Admin.');
+      }catch(err){
+        console.error('Team name sync failed:',err);
+        alert('SAVE FAILED: '+(err&&err.message?err.message:'Could not update team names.'));
+      }finally{
+        btn.disabled=false;
+        btn.textContent='SAVE TEAM NAME CHANGES';
+      }
+    };
+  }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',installTeamNameSync);
+  else installTeamNameSync();
+})();
 </script></body></html>
