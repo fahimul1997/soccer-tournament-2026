@@ -998,6 +998,9 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
     }).join('');
     el.innerHTML=html||'<p class="muted">No goals recorded.</p>';
   }
+  /* Expose the authoritative renderer so the final persistence guard can
+     re-apply it after any legacy renderAll() call. */
+  window.__renderAuthoritativeScorers=render;
   function bind(){
     if(!window.firebase||!firebase.database){setTimeout(bind,500);return;}
     var ref=firebase.database().ref('tournament');
@@ -1044,6 +1047,11 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
         try{window.__refreshPublic2();}catch(e){}
       }
       if(typeof renderAll==='function')renderAll(data);
+      /* Re-apply the latest Firebase scorer list last, so no legacy renderer
+         can overwrite it with an older snapshot after a refresh. */
+      if(typeof window.__renderAuthoritativeScorers==='function'){
+        try{window.__renderAuthoritativeScorers(data);}catch(e){}
+      }
     }).catch(function(e){console.warn('Event data refresh failed:',e);});
   }
 
