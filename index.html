@@ -268,7 +268,6 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
         if(!window.firebase||!firebase.auth)throw Error('Firebase Authentication did not load. Please refresh the page.');
         if(!firebase.apps.length)firebase.initializeApp(window.FIREBASE_CONFIG);
         var a=firebase.auth();
-        await a.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
         await a.signInWithEmailAndPassword(email,password);
         window.__adminUserLoggedIn=true;
         if(modal)modal.classList.add('hidden');
@@ -1426,7 +1425,7 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
     }
     poll();
     if(timer)clearInterval(timer);
-    timer=setInterval(poll,3000);
+    /* Firebase realtime listener is the live source; no polling needed. */
   }
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',start);
   else start();
@@ -1550,7 +1549,7 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
   function start(){
     if(timer)clearInterval(timer);
     read();
-    timer=setInterval(read,2000);
+    /* Firebase realtime listener is the live source; no polling needed. */
     document.querySelectorAll('.tabs [data-tab="rosters"],.tabs [data-tab="schedule"]').forEach(function(tab){
       tab.addEventListener('click',function(){
         setTimeout(read,0);
@@ -1642,15 +1641,7 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
       /* If an older renderer ever replaces the select with an empty control,
          restore the team options automatically without touching tournament data. */
       if(timer)clearInterval(timer);
-      timer=setInterval(function(){
-        var sel=document.getElementById('rt');
-        if(sel && sel.options.length<9)refresh();
-        if(sel){
-          sel.disabled=false;
-          sel.style.pointerEvents='auto';
-          sel.style.opacity='1';
-        }
-      },1000);
+      /* Realtime Firebase listener keeps the selector current; no polling needed. */
     }catch(e){
       console.warn('Roster selector setup failed:',e);
     }
@@ -1745,11 +1736,7 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
     },true);
 
     if(timer)clearInterval(timer);
-    timer=setInterval(function(){
-      var editor=document.getElementById('teamEditor');
-      if(!editor)return;
-      ref.once('value').then(function(snap){sync(snap.val()||{});}).catch(function(){});
-    },2000);
+    /* Realtime Firebase listener keeps the admin fields current; no polling needed. */
   }
 
   if(document.readyState==='loading'){
@@ -1866,3 +1853,201 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',wire);else wire();
 })();
 </script>
+
+<script>
+/* FINAL AUTHORITATIVE SYNC + FAST ADMIN LOGIN
+   Firebase /tournament is the single source of truth.
+   Public tabs and the Admin dashboard are rehydrated from the same snapshot.
+   No local preview or stale admin state is allowed to replace saved data.
+*/
+(function(){
+  var started=false;
+  var lastSignature='';
+
+  function arr(v){return Array.isArray(v)?v:Object.values(v||{});}
+  function esc(v){
+    return String(v==null?'':v).replace(/[&<>"']/g,function(c){
+      return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'};
+    });
+  }
+
+  function normalize(data){
+    data=data||{};
+    return {
+      teams:arr(data.teams).slice(0,8).map(function(t,i){
+        return {
+          name:String(t&&t.name||('Team '+(i+1))),
+          group:t&&t.group==='B'?'B':'A',
+          roster:arr(t&&t.roster).map(function(p){
+            return typeof p==='string'?p:(p&&p.name?String(p.name):String(p||''));
+          }).filter(Boolean),
+          complete:t&&t.complete===true
+        };
+      }),
+      games:arr(data.games),
+      goals:arr(data.goals),
+      cards:arr(data.cards),
+      locked:data.locked===true,
+      raffleComplete:data.raffleComplete===true
+    };
+  }
+
+  function signature(d){
+    return JSON.stringify({
+      teams:d.teams,games:d.games,goals:d.goals,cards:d.cards,
+      locked:d.locked,raffleComplete:d.raffleComplete
+    });
+  }
+
+  function syncAdminFields(d){
+    var editor=document.getElementById('teamEditor');
+    if(!editor || d.teams.length!==8)return;
+
+    var names=document.querySelectorAll('#teamEditor [data-name]');
+    var groups=document.querySelectorAll('#teamEditor [data-group]');
+    if(names.length===8 && groups.length===8){
+      d.teams.forEach(function(t,i){
+        names[i].value=t.name;
+        groups[i].value=t.group;
+        groups[i].disabled=d.raffleComplete;
+      });
+    }
+
+    var sel=document.getElementById('rt');
+    if(sel){
+      var current=sel.value;
+      var html='<option value="">Select team</option>';
+      d.teams.forEach(function(t,i){
+        html+='<option value="'+i+'">'+esc(t.name)+' (Group '+t.group+')</option>';
+      });
+      sel.innerHTML=html;
+      if(current!=='' && Number(current)>=0 && Number(current)<8)sel.value=current;
+      sel.disabled=d.locked;
+      sel.style.pointerEvents=d.locked?'none':'auto';
+      sel.style.opacity=d.locked?'0.7':'1';
+      sel.style.color='#132238';
+      sel.style.backgroundColor='#fff';
+    }
+
+    var status=document.getElementById('setupStatus');
+    if(status && d.raffleComplete){
+      status.innerHTML='<b>Raffle Status:</b> <span style="color:#16803c">🟢 COMPLETE</span> &nbsp; <b>Admin data is synchronized with the public tournament.</b>';
+    }
+  }
+
+  function syncPublic(d){
+    window.__PUBLIC_TOURNAMENT_DATA=d;
+    window.__AUTHORITATIVE_TOURNAMENT=d;
+    if(typeof window.renderAll==='function'){
+      try{window.renderAll(d);}catch(e){console.warn('Final public render:',e);}
+    }else if(typeof window.renderPublic2==='function'){
+      try{window.renderPublic2(d);}catch(e){console.warn('Final public render:',e);}
+    }
+  }
+
+  function syncAdminData(d){
+    window.__AUTHORITATIVE_TOURNAMENT=d;
+    window.__PUBLIC_TOURNAMENT_DATA=d;
+    if(typeof window.__refreshTournamentUI==='function'){
+      /* This updates the private admin state from Firebase before adminRender(). */
+      window.__refreshTournamentUI().then(function(){
+        syncAdminFields(d);
+      }).catch(function(){syncAdminFields(d);});
+    }else{
+      syncAdminFields(d);
+    }
+  }
+
+  function apply(data){
+    var d=normalize(data);
+    var sig=signature(d);
+    if(sig===lastSignature){
+      syncAdminFields(d);
+      return;
+    }
+    lastSignature=sig;
+    syncPublic(d);
+    if(window.firebase && firebase.auth && firebase.auth().currentUser){
+      syncAdminData(d);
+    }else{
+      syncAdminFields(d);
+    }
+  }
+
+  function start(){
+    if(started)return;
+    if(!window.firebase || !firebase.database){
+      setTimeout(start,250);
+      return;
+    }
+    started=true;
+    var ref=firebase.database().ref('tournament');
+
+    ref.on('value',function(snap){
+      apply(snap.val()||{});
+    });
+
+    /* Stop the old live-preview behavior from changing public tabs before SAVE. */
+    document.addEventListener('input',function(e){
+      if(e.target && e.target.closest && e.target.closest('#teamEditor')){
+        e.stopImmediatePropagation();
+      }
+    },true);
+    document.addEventListener('change',function(e){
+      if(e.target && e.target.closest && e.target.closest('#teamEditor')){
+        e.stopImmediatePropagation();
+      }
+    },true);
+
+    /* Re-apply saved Firebase values when an admin leaves an edited field. */
+    document.addEventListener('focusout',function(e){
+      if(e.target && e.target.closest && e.target.closest('#teamEditor')){
+        ref.once('value').then(function(snap){apply(snap.val()||{});}).catch(function(){});
+      }
+    },true);
+
+    /* Faster login: persistence is configured once at app startup; sign-in does
+       not wait for setPersistence on every attempt. */
+    var login=document.getElementById('login');
+    if(login){
+      login.onclick=async function(e){
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        var emailEl=document.getElementById('email'), passEl=document.getElementById('password');
+        var err=document.getElementById('loginError'), modal=document.getElementById('loginModal');
+        var email=(emailEl&&emailEl.value||'').trim(), password=passEl&&passEl.value||'';
+        if(!email||!password){if(err)err.textContent='Enter your admin email and password.';return;}
+        if(login.disabled)return;
+        login.disabled=true; login.textContent='Logging in…';
+        try{
+          var a=window.firebase&&firebase.auth?firebase.auth():null;
+          if(!a)throw Error('Firebase Authentication did not load. Please refresh.');
+          var cred=await a.signInWithEmailAndPassword(email,password);
+          window.__adminUserLoggedIn=true;
+          if(modal)modal.classList.add('hidden');
+          var ab=document.getElementById('adminBtn');if(ab)ab.textContent='Admin Dashboard';
+          if(typeof window.__openAdminDashboard==='function')window.__openAdminDashboard();
+          if(cred&&cred.user) setTimeout(function(){
+            ref.once('value').then(function(snap){apply(snap.val()||{});}).catch(function(){});
+          },0);
+        }catch(e){
+          var code=e&&e.code||'';
+          if(err)err.textContent=code==='auth/invalid-credential'||code==='auth/wrong-password'||code==='auth/user-not-found'
+            ?'Incorrect admin email or password.'
+            :code==='auth/too-many-requests'
+            ?'Too many login attempts. Please wait a few minutes and try again.'
+            :code==='auth/unauthorized-domain'
+            ?'This website is not authorized for Firebase Login.'
+            :(e&&e.message||'Login failed.');
+        }finally{
+          login.disabled=false;login.textContent='Login';
+        }
+      };
+    }
+  }
+
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',start);
+  else start();
+})();
+</script>
+
