@@ -224,6 +224,44 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
   }
 };$('addPlayer').onclick=async()=>{let i=$('rt').value,raw=$('player').value.trim();if(i===''||!raw)return alert('Select a team and enter one or more player names.');if(state.locked)return alert('Group stage is locked.');if(state.teams[+i].complete)return alert('This roster is marked complete.');let names=raw.split(/[,\n]+/).map(n=>n.trim()).filter(Boolean),roster=state.teams[+i].roster||[];let unique=names.filter((n,j,a)=>n&&!a.slice(0,j).some(x=>x.toLowerCase()===n.toLowerCase()));let newNames=unique.filter(n=>!roster.some(p=>p.toLowerCase()===n.toLowerCase()));if(roster.length+newNames.length>15)return alert('Maximum 15 players per team. This team currently has '+roster.length+' players, so you can add only '+Math.max(0,15-roster.length)+' more.');let added=0;for(const n of newNames){roster.push(n);added++}state.teams[+i].roster=roster;$('player').value='';if(!added)return alert('All entered players are already on this roster.');await save()};$('complete').onclick=async()=>{if(state.locked)return alert('Group stage is locked. Roster status cannot be changed.');let i=$('rt').value;if(i==='')return alert('Select a team.');state.teams[+i].complete=!state.teams[+i].complete;await save()};$('lock').onclick=async()=>{if(confirm('Lock group-stage rosters? No new players can be added afterward.')){state.locked=true;await save()}};$('goalTeam').onchange=()=>{$('goalPlayer').innerHTML=goalPopt($('goalTeam').value)};$('cardTeam').onchange=()=>{$('cardPlayer').innerHTML=popt($('cardTeam').value)};$('addGoal').onclick=async()=>{let gi=selectedGame,ti=$('goalTeam').value,pi=$('goalPlayer').value;if(gi===null||!state.games[+gi]||ti===''||pi==='')return alert('Select a scheduled game first, then select team and player.');let g=state.games[+gi],t=state.teams[+ti];let gameTeams=resolvedGameTeams(g);if(t.name!==gameTeams[0]&&t.name!==gameTeams[1])return alert('Team must be in the selected game.');if(pi!=='__NO_SCORER__'&&!t.roster[+pi])return alert('Select a valid rostered player.');state.goals.push({game:+gi,team:t.name,player:pi==='__NO_SCORER__'?'':t.roster[+pi],time:$('goalTime').value||'-'});if(!await save())state.goals.pop()};$('addCard').onclick=async()=>{let gi=selectedGame,ti=$('cardTeam').value,pi=$('cardPlayer').value;if(gi===null||!state.games[+gi]||ti===''||pi==='')return alert('Select the game being played first, then select team and player.');let g=state.games[+gi],t=state.teams[+ti];let gameTeams=resolvedGameTeams(g);if(t.name!==gameTeams[0]&&t.name!==gameTeams[1])return alert('Team must be in the selected game.');if(!t.roster[+pi])return alert('Select a valid rostered player.');state.cards.push({game:+gi,team:t.name,player:t.roster[+pi],type:$('cardType').value,time:$('cardTime').value||'-'});if(!await save())state.cards.pop()};$('reset').onclick=async()=>{if(confirm('Reset tournament games, scores, goals, cards, and lock status? Team names and player rosters will NOT be removed. You can still edit or remove players afterward.')){let teams=(state.teams||[]).map((t,i)=>({name:t.name||'Team '+(i+1),group:t.group||(i<4?'A':'B'),roster:Array.isArray(t.roster)?t.roster.slice():[],complete:!!t.complete}));state={teams,games:[],goals:[],cards:[],locked:false,raffleComplete:false};selectedGame=null;await save();alert('Tournament reset. Team names and player rosters were preserved. Raffle status is now NOT COMPLETED until you generate the schedule again.');}};if(!window.FIREBASE_CONFIG||window.FIREBASE_CONFIG.apiKey==='YOUR_API_KEY'){document.body.insertAdjacentHTML('afterbegin','<div style="padding:12px;background:#fee2e2;color:#991b1b;text-align:center;font-weight:700">Firebase is not configured yet. Add your Firebase Web App values to firebase-config.js.</div>');return}firebase.initializeApp(window.FIREBASE_CONFIG);db=firebase.database();auth=firebase.auth();auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(e=>console.warn('Auth persistence setup:',e));window.__openAdminDashboard=function(){user=auth.currentUser||user;window.__adminUserLoggedIn=!!user;$('adminBtn').textContent=user?'Admin Dashboard':'Admin Login';if(!user)return;try{adminRender();showTournamentTab('admin')}catch(e){console.error('Admin dashboard render failed:',e);if($('adminStatus'))$('adminStatus').innerHTML='<b>⚠️ Admin dashboard error:</b> '+(e&&e.message?e.message:'Please refresh the page.');showTournamentTab('admin')}};auth.onAuthStateChanged(u=>{user=u||null;window.__adminUserLoggedIn=!!user;$('adminBtn').textContent=user?'Admin Dashboard':'Admin Login';if(user)window.__openAdminDashboard()});window.__refreshTournamentUI=async function(){try{var snap=await db.ref('tournament').once('value');state=snap.val()||empty();render();return true}catch(e){console.error('Tournament refresh failed:',e);return false}};db.ref('tournament').on('value',s=>{try{state=s.val()||empty();render()}catch(e){console.error('Tournament render error:',e);try{renderPublicFallback()}catch(_){}if($('adminStatus'))$('adminStatus').innerHTML='<b>⚠️ Data display error:</b> The public tournament data could not be rendered. Please refresh the page.'}});})();
 </script><script>
+(function(){
+  function bindLogin(){
+    var btn=document.getElementById('login'),modal=document.getElementById('loginModal');
+    if(!btn)return;
+    btn.onclick=async function(e){
+      e.preventDefault();e.stopImmediatePropagation();
+      var email=(document.getElementById('email').value||'').trim();
+      var password=document.getElementById('password').value||'';
+      var err=document.getElementById('loginError');
+      if(!email||!password){err.textContent='Enter your admin email and password.';return}
+      if(btn.disabled)return;
+      btn.disabled=true;btn.textContent='Logging in...';err.textContent='';
+      try{
+        if(!window.firebase||!firebase.auth)throw Error('Firebase Authentication did not load. Please refresh the page.');
+        if(!firebase.apps.length)firebase.initializeApp(window.FIREBASE_CONFIG);
+        var a=firebase.auth();
+        await a.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
+        await a.signInWithEmailAndPassword(email,password);
+        window.__adminUserLoggedIn=true;
+        if(modal)modal.classList.add('hidden');
+        var ab=document.getElementById('adminBtn');if(ab)ab.textContent='Admin Dashboard';
+        if(typeof window.__openAdminDashboard==='function')window.__openAdminDashboard();
+        else if(typeof showTournamentTab==='function')showTournamentTab('admin');
+      }catch(e){
+        console.error('Admin login failed:',e);
+        var code=e&&e.code||'';
+        err.textContent=code==='auth/invalid-credential'||code==='auth/wrong-password'||code==='auth/user-not-found'?'Incorrect admin email or password.':
+          code==='auth/unauthorized-domain'?'This website is not authorized for Firebase Login.':
+          code==='auth/too-many-requests'?'Too many login attempts. Please wait and try again.':(e.message||'Login failed.');
+      }finally{btn.disabled=false;btn.textContent='Login'}
+    };
+    document.getElementById('password')?.addEventListener('keydown',e=>{if(e.key==='Enter')btn.click()});
+    document.getElementById('email')?.addEventListener('keydown',e=>{if(e.key==='Enter')btn.click()});
+  }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',bindLogin);else bindLogin();
+})();
+</script>
+<script>
 /* CLEAN FIREBASE CONTROLLER — replaces all previous override layers */
 (function(){
   const $=id=>document.getElementById(id);
