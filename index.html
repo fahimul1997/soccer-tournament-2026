@@ -861,6 +861,81 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',bind);else bind();
 })();
 </script>
+<script>
+/* FINAL ROSTER COMPLETION / GROUP-STAGE LOCK CONTROLLER
+   Per-team Complete/Incomplete status and one global Group Stage lock.
+   Completing a roster does not lock the tournament; the admin can reopen it
+   until the global Group Stage Lock is applied. Once locked, no roster changes
+   are permitted, and the same Firebase state is used publicly. */
+(function(){
+  function arr(v){return Array.isArray(v)?v:Object.values(v||{});}
+  async function read(){return (await firebase.database().ref('tournament').once('value')).val()||{};}
+  function admin(){return !!(window.firebase&&firebase.auth&&firebase.auth().currentUser);}
+  function selected(){var s=document.getElementById('rt');return s?s.value:'';}
+  function render(d){
+    var teams=arr(d.teams),box=document.getElementById('adminRosters');
+    if(box) box.querySelectorAll('[data-roster-status]').forEach(function(x){
+      var i=+x.getAttribute('data-roster-status'),t=teams[i]||{};
+      x.textContent=t.complete?'Complete':'Incomplete';
+    });
+    var b=document.getElementById('complete');
+    if(b){
+      var i=selected(),t=i!==''?teams[+i]:null;
+      b.textContent=t&&t.complete?'Mark Incomplete':'Mark Complete';
+      b.disabled=!!d.locked;
+    }
+    var l=document.getElementById('lock');
+    if(l){
+      l.textContent=d.locked?'Group Stage Locked':'Lock Group Stage';
+      l.disabled=!!d.locked;
+    }
+  }
+  async function toggle(e){
+    if(e){e.preventDefault();e.stopImmediatePropagation();}
+    if(!admin()){alert('Admin login required.');return;}
+    var i=selected();
+    if(i===''){alert('Please select a team first.');return;}
+    var d=await read();
+    if(d.locked===true){alert('Group Stage is already locked. Team roster status cannot be changed.');return;}
+    var teams=arr(d.teams),t=teams[+i];
+    if(!t){alert('Selected team was not found.');return;}
+    var b=document.getElementById('complete'); if(b)b.disabled=true;
+    try{
+      await firebase.database().ref('tournament').update({'teams/'+(+i)+'/complete':t.complete!==true});
+      render((await read()));
+    }catch(err){alert('Could not update roster status: '+(err.message||err));}
+    finally{if(b)b.disabled=false;}
+  }
+  async function lock(e){
+    if(e){e.preventDefault();e.stopImmediatePropagation();}
+    if(!admin()){alert('Admin login required.');return;}
+    var d=await read();
+    if(d.locked===true){alert('Group Stage is already locked.');return;}
+    var teams=arr(d.teams).slice(0,8);
+    var incomplete=teams.filter(function(t){return !t||t.complete!==true;}).map(function(t,i){return t&&t.name?t.name:'Team '+(i+1);});
+    var msg='Lock the Group Stage now?\n\nAfter locking:\n• No new players can be added.\n• Rosters cannot be changed.\n• Player eligibility for the knockout stage is finalized.\n• Existing goals/cards/history remain unchanged.';
+    if(incomplete.length)msg+='\n\nTeams currently marked Incomplete:\n'+incomplete.join('\n');
+    if(!confirm(msg))return;
+    var b=document.getElementById('lock');if(b){b.disabled=true;b.textContent='Locking…';}
+    try{
+      await firebase.database().ref('tournament').update({locked:true});
+      var latest=await read();render(latest);
+      alert('Group Stage is now locked. Rosters are finalized.');
+    }catch(err){alert('Could not lock the Group Stage: '+(err.message||err));}
+    finally{if(b&&!b.disabled){b.textContent='Lock Group Stage';}else if(b){b.textContent='Group Stage Locked';}}
+  }
+  function bind(){
+    var c=document.getElementById('complete'),l=document.getElementById('lock');
+    if(!c||!l){setTimeout(bind,500);return;}
+    c.onclick=toggle;l.onclick=lock;
+    var s=document.getElementById('rt');
+    if(s)s.addEventListener('change',function(){read().then(render);});
+    read().then(render).catch(function(){});
+  }
+  function start(){if(!window.firebase||!firebase.database){setTimeout(start,500);return;}bind();}
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',start);else start();
+})();
+</script>
 </body></html><script>
 /* Live admin preview: typing team names or changing Group A/B immediately updates the public tabs in this browser.
    Firebase is still only changed when the admin presses SAVE RAFFLE RESULTS & GENERATE SCHEDULE or SAVE TEAM NAME CHANGES. */
