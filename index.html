@@ -3473,11 +3473,27 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
   }
 
   async function readAll(){
-    if(!window.firebase||!firebase.database)return;
-    var root=await firebase.database().ref('tournament').once('value');
-    var data=root.val()||{};
-    data.goals=(await firebase.database().ref('tournament/goals').once('value')).val()||data.goals||{};
-    data.cards=(await firebase.database().ref('tournament/cards').once('value')).val()||data.cards||{};
+    /* Use Firebase's public REST API for these two public tabs. This avoids
+       any timing/race issue with the Firebase SDK and guarantees the public
+       page can read the saved records immediately after a reload. */
+    var base=window.FIREBASE_CONFIG&&window.FIREBASE_CONFIG.databaseURL;
+    if(!base)return null;
+    base=String(base).replace(/\\/$/,'');
+    var root=await fetch(base+'/tournament.json',{cache:'no-store'});
+    if(!root.ok)throw new Error('Firebase tournament read failed: HTTP '+root.status);
+    var data=await root.json()||{};
+
+    var gr=await fetch(base+'/tournament/goals.json',{cache:'no-store'});
+    if(gr.ok){
+      var gv=await gr.json();
+      if(gv!==null)data.goals=gv;
+    }
+
+    var cr=await fetch(base+'/tournament/cards.json',{cache:'no-store'});
+    if(cr.ok){
+      var cv=await cr.json();
+      if(cv!==null)data.cards=cv;
+    }
     return data;
   }
 
