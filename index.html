@@ -451,23 +451,8 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
           roster.splice(pi,1);await patch({'teams/'+ti+'/roster':roster});return;
         }
         if(add){
-          if(add.id==='lock'){
-            if(confirm('Lock group-stage rosters? No new players can be added afterward.'))await patch({locked:true});
-            return;
-          }
-          if(add.id==='complete'){
-            const ti=$('rt').value;if(ti==='')throw Error('Select a team.');
-            await patch({'teams/'+(+ti)+'/complete':!teams[+ti].complete});return;
-          }
-          if(add.id==='addPlayer'){
-            const ti=$('rt').value,raw=($('player').value||'').trim();
-            if(ti===''||!raw)throw Error('Select a team and enter player names.');
-            if(data.locked)throw Error('Group stage is locked.');
-            const roster=arr(teams[+ti].roster),names=raw.split(/[,\n]+/).map(x=>x.trim()).filter(Boolean);
-            const fresh=names.filter(x=>!roster.some(p=>String(p).toLowerCase()===x.toLowerCase()));
-            if(roster.length+fresh.length>15)throw Error('Maximum 15 players per team.');
-            await patch({'teams/'+(+ti)+'/roster':roster.concat(fresh)});$('player').value='';return;
-          }
+          /* Add Player / Complete / Lock are handled by the dedicated final roster controller.
+             This legacy capture listener must not intercept those buttons. */
           const gi=window.__selectedGameIndex;
           if(gi==null||!games[gi])throw Error('Select a scheduled game first.');
           const goal=add.id==='addGoal',ti=+$(goal?'goalTeam':'cardTeam').value,pi=$(goal?'goalPlayer':'cardPlayer').value;
@@ -792,9 +777,9 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
     if(!btn||!sel||!input)return;
     if(!window.firebase||!firebase.database||!firebase.auth||!firebase.auth().currentUser){alert('Admin login required.');return;}
     var idx=sel.value, raw=(input.value||'').trim();
-    if(idx===''){alert('Please select a team first.');return;}
+    if(idx===''){alert('You must associate the players with a team before adding them. Please select a team.');return;}
     if(!raw){alert('Enter one or more player names.');return;}
-    var names=raw.split(/[,\\n]+/).map(function(x){return x.trim();}).filter(Boolean);
+    var names=raw.split(/[,\n]+/).map(function(x){return x.trim();}).filter(Boolean);
     if(!names.length)return;
     btn.disabled=true; var old=btn.textContent; btn.textContent='SAVING…';
     try{
