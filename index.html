@@ -855,12 +855,15 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
       ['Field 1','2:10 PM'],['Field 2','2:10 PM']
     ];
     for(var r=0;r<3;r++){
-      [ra[r],rb[r]].forEach(function(pairSet,which){
-        pairSet.forEach(function(p,j){
-          var si=r*2+j, old=out.length;
-          out.push({field:slots[si][0],stage:'Group Stage',date:'',time:slots[si][1],
-            a:p[0],b:p[1],sa:0,sb:0,played:false});
-        });
+      ra[r].forEach(function(p,j){
+        var si=r*2;
+        out.push({field:slots[si][0],stage:'Group Stage',date:'',time:slots[si][1],
+          a:p[0],b:p[1],sa:0,sb:0,played:false});
+      });
+      rb[r].forEach(function(p,j){
+        var si=r*2+1;
+        out.push({field:slots[si][0],stage:'Group Stage',date:'',time:slots[si][1],
+          a:p[0],b:p[1],sa:0,sb:0,played:false});
       });
     }
     out.push({field:'Field 1',stage:'Semifinal 1',date:'',time:'3:20 PM',a:'Group A #1',b:'Group B #2',sa:0,sb:0,played:false});
