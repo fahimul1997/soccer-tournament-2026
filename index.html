@@ -1048,6 +1048,59 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
 })();
 </script>
 <script>
+/* FINAL PUBLIC TAB SYNC
+   One Firebase record is the source for every public tab.
+   Every Firebase change re-renders Teams, Schedule, Standings, Scorers and Cards.
+   Opening a tab also performs a fresh Firebase read so a stale tab cannot remain visible.
+*/
+(function(){
+  var ref=null, bound=false;
+
+  function start(){
+    if(bound || !window.firebase || !firebase.database)return;
+    bound=true;
+    ref=firebase.database().ref('tournament');
+
+    function render(data){
+      data=data||{};
+      window.__PUBLIC_TOURNAMENT_DATA=data;
+      if(typeof window.renderAll==='function'){
+        window.renderAll(data);
+      }else if(typeof renderAll==='function'){
+        renderAll(data);
+      }else if(typeof renderPublic2==='function'){
+        renderPublic2(data);
+        if(typeof window.__fixPublicStandings==='function')window.__fixPublicStandings();
+      }
+    }
+
+    ref.on('value',function(snap){
+      render(snap.val()||{});
+    });
+
+    document.querySelectorAll('.tabs [data-tab]').forEach(function(tab){
+      tab.addEventListener('click',async function(){
+        try{
+          var snap=await ref.once('value');
+          render(snap.val()||{});
+        }catch(e){
+          console.warn('Public tab refresh failed:',e);
+        }
+      },true);
+    });
+
+    ref.once('value').then(function(snap){
+      render(snap.val()||{});
+    }).catch(function(e){
+      console.warn('Initial public Firebase read failed:',e);
+    });
+  }
+
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',start);
+  else start();
+})();
+</script>
+<script>
 /* PUBLIC FALLBACK SYNC
    Uses Firebase's public REST endpoint in addition to the realtime SDK.
    This guarantees public browsers receive the shared tournament record even if
@@ -1061,7 +1114,7 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
       if(busy)return;
       busy=true;
       try{
-        var r=await fetch(url+'?publicSync='+Date.now(),{cache:'no-store'});
+        var r=await fetch(url,{cache:'no-store'});
         if(!r.ok)throw new Error('Firebase public read returned HTTP '+r.status);
         var data=await r.json();
         var json=JSON.stringify(data||{});
