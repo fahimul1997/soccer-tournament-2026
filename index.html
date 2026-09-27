@@ -2566,3 +2566,82 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
   else bindUltimate();
 })();
 </script>
+
+<script>
+/* FINAL ACTIVE GAME SCORE CONTROLLER
+   The admin can select a scheduled game in "Game Being Played", enter both scores,
+   and save them directly to Firebase. Public schedule/standings then read the same
+   saved game score. */
+(function(){
+  function get(id){return document.getElementById(id);}
+  function esc(v){return String(v==null?'':v).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c];});}
+  function games(v){return Array.isArray(v)?v:Object.values(v||{});}
+  async function read(){
+    return (await firebase.database().ref('tournament').once('value')).val()||{};
+  }
+  function renderScore(){
+    var sel=get('activeGameSelect'), box=get('activeGameStatus');
+    if(!sel||!box)return;
+    var i=sel.value;
+    if(i===''){
+      box.innerHTML='No game selected.';
+      return;
+    }
+    var opt=sel.options[sel.selectedIndex];
+    var title=opt?opt.textContent:'Selected game';
+    var currentA=0,currentB=0;
+    try{
+      var raw=window.__activeGameData;
+      if(raw && raw.index===+i){currentA=raw.a;currentB=raw.b;}
+    }catch(_){}
+    box.innerHTML='<b>'+esc(title)+'</b>'+
+      '<div class="actions" style="margin-top:10px;display:flex;flex-wrap:wrap;gap:8px;align-items:center">'+
+      '<label>Score A <input id="activeScoreA" type="number" min="0" step="1" value="'+currentA+'" style="width:80px"></label>'+
+      '<label>Score B <input id="activeScoreB" type="number" min="0" step="1" value="'+currentB+'" style="width:80px"></label>'+
+      '<button id="saveActiveScore">SAVE SCORE</button></div>'+
+      '<div id="activeScoreMessage" class="muted" style="margin-top:6px">Score will be visible on the public Schedule & Results and Standings after saving.</div>';
+    var b=get('saveActiveScore');
+    if(b)b.onclick=saveActiveScore;
+  }
+  async function loadSelected(){
+    var sel=get('activeGameSelect');
+    if(!sel||sel.value===''){renderScore();return;}
+    try{
+      var d=await read(), gs=games(d.games), g=gs[+sel.value];
+      if(!g){renderScore();return;}
+      window.__activeGameData={index:+sel.value,a:Math.max(0,+g.sa||0),b:Math.max(0,+g.sb||0)};
+    }catch(e){console.error(e);}
+    renderScore();
+  }
+  async function saveActiveScore(){
+    var sel=get('activeGameSelect'),a=get('activeScoreA'),b=get('activeScoreB'),btn=get('saveActiveScore');
+    if(!sel||sel.value===''){alert('Please select a scheduled game first.');return;}
+    var av=Math.max(0,parseInt(a&&a.value,10)||0),bv=Math.max(0,parseInt(b&&b.value,10)||0);
+    if(btn){btn.disabled=true;btn.textContent='SAVING…';}
+    try{
+      if(!window.firebase||!firebase.auth||!firebase.auth().currentUser)throw Error('Admin login required.');
+      var i=+sel.value;
+      await firebase.database().ref('tournament/games/'+i).update({sa:av,sb:bv,played:true});
+      window.__activeGameData={index:i,a:av,b:bv};
+      var msg=get('activeScoreMessage');
+      if(msg)msg.textContent='✓ Score saved. Public Schedule & Results and Standings are updated.';
+    }catch(e){
+      console.error(e);
+      alert('Could not save the score: '+(e.message||e));
+    }finally{
+      if(btn){btn.disabled=false;btn.textContent='SAVE SCORE';}
+    }
+  }
+  function bind(){
+    var sel=get('activeGameSelect');
+    if(!sel){setTimeout(bind,500);return;}
+    if(sel.dataset.finalScoreBound==='1')return;
+    sel.dataset.finalScoreBound='1';
+    sel.addEventListener('change',loadSelected);
+    var set=get('setActiveGame');
+    if(set)set.addEventListener('click',function(){setTimeout(loadSelected,50);});
+    loadSelected();
+  }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',bind);else bind();
+})();
+</script>
