@@ -451,9 +451,13 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
           roster.splice(pi,1);await patch({'teams/'+ti+'/roster':roster});return;
         }
         if(add){
-          /* Add Player / Complete / Lock are handled by the dedicated final roster controller.
-             This legacy capture listener must not intercept those buttons. */
-          const gi=window.__selectedGameIndex;
+          /* Add Player / Complete / Lock are handled by dedicated controllers.
+             Goal/Card are saved here exactly once from the currently selected game. */
+          if(add.id!=='addGoal' && add.id!=='addCard') return;
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          const gameSelect=$('activeGameSelect');
+          const gi=gameSelect&&gameSelect.value!==''?+gameSelect.value:null;
           if(gi==null||!games[gi])throw Error('Select a scheduled game first.');
           const goal=add.id==='addGoal',ti=+$(goal?'goalTeam':'cardTeam').value,pi=$(goal?'goalPlayer':'cardPlayer').value;
           if(Number.isNaN(ti)||pi==='')throw Error('Select a team and player.');
