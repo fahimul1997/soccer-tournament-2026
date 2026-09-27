@@ -3653,7 +3653,7 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
 /* LIMITED TOURNAMENT RESET
    Keeps the website design and tournament structure intact.
    Clears only team names, scores, goals/scorers, cards/suspensions,
-   and goal/card history stored under games.
+   and goal/card history, and games played.
 */
 (function(){
   function freshTeams(){
@@ -3681,9 +3681,9 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
 
     var ok=confirm(
       'RESET TO FRESH TEAM DATA?\\n\\n'+
-      'This will reset team names, scores, goals/scorers, cards/suspensions, '+
+      'This will reset team names, games played, scores, goals/scorers, cards/suspensions, '+
       'and goal/card history.\\n\\n'+
-      'Your website design, tournament rules, team groups, rosters, and schedule structure will remain.\\n\\n'+
+      'Your website design, tournament rules, and overall tournament setup will remain.\\n\\n'+
       'Continue?'
     );
     if(!ok)return;
@@ -3697,23 +3697,10 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
       var ref=firebase.database().ref('tournament');
       var snap=await ref.once('value');
       var current=snap.val()||{};
-      var games=Array.isArray(current.games)?current.games:[];
-
-      /* Preserve the tournament structure/schedule, but remove all results
-         and all goal/card history from every game. */
-      games=games.map(function(g){
-        g=g||{};
-        var copy={};
-        Object.keys(g).forEach(function(k){
-          if(k!=='scoreA'&&k!=='scoreB'&&k!=='score'&&k!=='goals'&&k!=='cards'&&
-             k!=='homeScore'&&k!=='awayScore'&&k!=='result'&&k!=='status'){
-            copy[k]=g[k];
-          }
-        });
-        copy.scoreA=0;
-        copy.scoreB=0;
-        return copy;
-      });
+      /* Games Played is part of the tournament results data.
+         Clear it completely so no old scheduled/result games remain visible.
+         The site design and tournament rules are untouched. */
+      var games=[];
 
       var next={};
       Object.keys(current).forEach(function(k){
@@ -3721,7 +3708,7 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
       });
 
       next.teams=freshTeams();
-      next.games=games;
+      next.games=[];
       next.goals={};
       next.cards={};
       next.activeGame=null;
@@ -3742,8 +3729,8 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
         try{await window.__refreshPublic2();}catch(e){}
       }
 
-      if(status)status.innerHTML='<b>✓ Reset complete.</b> Team names, scores, goals/scorers, cards/suspensions, and game history are cleared. Website design and tournament structure are unchanged.';
-      alert('✓ RESET COMPLETE\\n\\nTeam names, scores, goals/scorers, cards/suspensions, and game history have been cleared.\\n\\nYour website design and tournament structure were kept.');
+      if(status)status.innerHTML='<b>✓ Reset complete.</b> Team names, games played, scores, goals/scorers, cards/suspensions, and game history are cleared. Website design and tournament structure are unchanged.';
+      alert('✓ RESET COMPLETE\\n\\nTeam names, games played, scores, goals/scorers, cards/suspensions, and game history have been cleared.\\n\\nYour website design and tournament structure were kept.');
     }catch(err){
       console.error('Limited tournament reset failed:',err);
       if(status)status.textContent='Reset failed: '+(err&&err.message?err.message:err);
