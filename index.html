@@ -643,7 +643,7 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
     ];
     for(var r=0;r<3;r++){
       ra[r].forEach(function(p,j){var si=r*4+j;games.push({field:slots[si][0],stage:'Group Stage',time:slots[si][1],a:p[0],b:p[1],sa:0,sb:0,played:false})});
-      rb[r].forEach(function(p,j){var si=(r+3)*4+j;games.push({field:slots[si][0],stage:'Group Stage',time:slots[si][1],a:p[0],b:p[1],sa:0,sb:0,played:false})});
+      rb[r].forEach(function(p,j){var si=r*4+2+j;games.push({field:slots[si][0],stage:'Group Stage',time:slots[si][1],a:p[0],b:p[1],sa:0,sb:0,played:false})});
     }
     games.push({field:'Field 1',stage:'Semifinal 1',time:'3:20 PM',a:'Group A #1',b:'Group B #2',sa:0,sb:0,played:false});
     games.push({field:'Field 2',stage:'Semifinal 2',time:'4:05 PM',a:'Group B #1',b:'Group A #2',sa:0,sb:0,played:false});
@@ -855,7 +855,7 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
     ];
     for(var r=0;r<3;r++){
       ra[r].forEach(function(p,j){var si=r*4+j;out.push({field:slots[si][0],stage:'Group Stage',date:'',time:slots[si][1],a:p[0],b:p[1],sa:0,sb:0,played:false})});
-      rb[r].forEach(function(p,j){var si=(r+3)*4+j;out.push({field:slots[si][0],stage:'Group Stage',date:'',time:slots[si][1],a:p[0],b:p[1],sa:0,sb:0,played:false})});
+      rb[r].forEach(function(p,j){var si=r*4+2+j;out.push({field:slots[si][0],stage:'Group Stage',date:'',time:slots[si][1],a:p[0],b:p[1],sa:0,sb:0,played:false})});
     }
     out.push({field:'Field 1',stage:'Semifinal 1',date:'',time:'3:20 PM',a:'Group A #1',b:'Group B #2',sa:0,sb:0,played:false});
     out.push({field:'Field 2',stage:'Semifinal 2',date:'',time:'4:05 PM',a:'Group B #1',b:'Group A #2',sa:0,sb:0,played:false});
