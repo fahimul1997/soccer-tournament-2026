@@ -2644,3 +2644,95 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',bind);else bind();
 })();
 </script>
+<script>
+/* FINAL GAME SELECTION + MATCH EVENTS CONTROLLER
+   The scheduled-game selector is populated directly from Firebase so it always
+   reflects the saved tournament schedule. Selecting a game also prepares the
+   goal/card controls for only the two teams in that match.
+*/
+(function(){
+  function el(id){return document.getElementById(id);}
+  function arr(v){return Array.isArray(v)?v:Object.keys(v||{}).sort(function(a,b){return (+a)-(+b);}).map(function(k){return v[k];});}
+  function esc(v){return String(v==null?'':v).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c];});}
+  function teamsFromGame(g,data){
+    var all=arr(data.teams), byName={};
+    all.forEach(function(t){if(t&&t.name)byName[t.name]=t;});
+    if(g.stage==='Semifinal 1'){
+      var a=all.filter(function(t){return t.group==='A';}),b=all.filter(function(t){return t.group==='B';});
+      return [a.length?'Group A #1':'Group A #1',b.length?'Group B #2':'Group B #2'];
+    }
+    if(g.stage==='Semifinal 2')return ['Group B #1','Group A #2'];
+    if(g.stage==='Final')return ['Semifinal 1 Winner','Semifinal 2 Winner'];
+    return [g.a||'TBD',g.b||'TBD'];
+  }
+  function gameLabel(g,i,data){
+    var p=teamsFromGame(g,data);
+    return 'Game '+(i+1)+' • '+(g.stage||'Group Stage')+' • '+(g.time||'')+' • '+(g.field||'')+' • '+p[0]+' vs '+p[1];
+  }
+  function populate(data){
+    var sel=el('activeGameSelect');
+    if(!sel)return;
+    var gs=arr(data.games).filter(function(g){return g&&typeof g==='object';});
+    var old=sel.value;
+    sel.innerHTML='<option value="">Select the game being played</option>'+gs.map(function(g,i){return '<option value="'+i+'">'+esc(gameLabel(g,i,data))+'</option>';}).join('');
+    if(old!=='' && Number(old)>=0 && Number(old)<gs.length)sel.value=old;
+    sel.disabled=false;
+    sel.style.pointerEvents='auto';
+    sel.style.opacity='1';
+    sel.style.color='#132238';
+    sel.style.backgroundColor='#fff';
+    if(sel.value!=='')prepareMatch(gs[+sel.value],+sel.value,data);
+  }
+  function prepareMatch(g,index,data){
+    if(!g)return;
+    var names=teamsFromGame(g,data);
+    var goalTeam=el('goalTeam'),cardTeam=el('cardTeam');
+    var teams=arr(data.teams);
+    function teamOptions(){
+      return '<option value="">Select team</option>'+names.map(function(name){
+        var ix=teams.findIndex(function(t){return t&&t.name===name;});
+        return ix>=0?'<option value="'+ix+'">'+esc(name)+'</option>':'';
+      }).join('');
+    }
+    if(goalTeam){var oldG=goalTeam.value;goalTeam.innerHTML=teamOptions();if(oldG!=='')goalTeam.value=oldG;goalTeam.dispatchEvent(new Event('change'));}
+    if(cardTeam){var oldC=cardTeam.value;cardTeam.innerHTML=teamOptions();if(oldC!=='')cardTeam.value=oldC;cardTeam.dispatchEvent(new Event('change'));}
+    var gg=el('goalGame'),cg=el('cardGame');
+    var label='Game '+(index+1)+' • '+(g.time||'')+' • '+(g.field||'')+' • '+names[0]+' vs '+names[1];
+    if(gg)gg.textContent=label;
+    if(cg)cg.textContent=label;
+  }
+  async function load(){
+    if(!window.firebase||!firebase.database){setTimeout(load,500);return;}
+    try{
+      var snap=await firebase.database().ref('tournament').once('value');
+      var data=snap.val()||{};populate(data);
+      firebase.database().ref('tournament').off('value',window.__finalGameScheduleListener);
+      window.__finalGameScheduleListener=function(s){populate(s.val()||{});};
+      firebase.database().ref('tournament').on('value',window.__finalGameScheduleListener);
+    }catch(e){console.error('Game selector sync failed:',e);setTimeout(load,1000);return;}
+    bind();
+  }
+  function bind(){
+    var sel=el('activeGameSelect');
+    if(!sel||sel.dataset.finalGameController==='1')return;
+    sel.dataset.finalGameController='1';
+    sel.addEventListener('change',function(){
+      var i=sel.value;
+      if(i===''){
+        var gg=el('goalGame'),cg=el('cardGame');
+        if(gg)gg.textContent='No game selected.';if(cg)cg.textContent='No game selected.';
+        return;
+      }
+      /* Use the existing authoritative Set Active Game handler so the existing
+         goal/card save handlers point to this exact scheduled game. */
+      var set=el('setActiveGame');
+      if(set)set.click();
+      firebase.database().ref('tournament').once('value').then(function(s){
+        var d=s.val()||{},gs=arr(d.games),g=gs[+i];
+        prepareMatch(g,+i,d);
+      }).catch(function(e){console.error(e);});
+    });
+  }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',load);else load();
+})();
+</script>
