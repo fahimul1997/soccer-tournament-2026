@@ -1017,6 +1017,98 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
     }catch(e){console.error('Shared Firebase listener failed:',e);}
   }
 
+
+  /* TEAM NAME OVERRIDE ONLY
+     SAVE TEAM NAME CHANGES changes names only. It never regenerates the schedule,
+     changes Group A/B assignments, resets scores, or removes goals/cards.
+     Every existing reference to the renamed team is updated in Firebase so all
+     public tabs and the admin dashboard show the corrected name. */
+  async function renameTeamsOnly(button){
+    if(button && button.dataset.busy==='1')return;
+    var authUser=window.firebase&&firebase.auth&&firebase.auth().currentUser;
+    if(!authUser){alert('Admin login required. Please log in again.');return;}
+
+    var ns=document.querySelectorAll('#teamEditor [data-name]');
+    if(ns.length!==8){alert('The 8 team fields are not loaded. Please refresh the page.');return;}
+
+    var entered=Array.from(ns).map(function(el,i){
+      return (el.value||'').trim()||('Team '+(i+1));
+    });
+    var seen={};
+    for(var i=0;i<entered.length;i++){
+      var key=entered[i].toLowerCase();
+      if(seen[key]){alert('Team names must be unique.');return;}
+      seen[key]=true;
+    }
+
+    if(button){button.dataset.busy='1';button.disabled=true;button.textContent='UPDATING NAMES...';}
+    try{
+      var old=await getShared();
+      var oldTeams=arr(old.teams);
+      if(oldTeams.length!==8){
+        throw new Error('The saved tournament does not contain all 8 teams. Generate the tournament schedule first.');
+      }
+
+      var renameMap={};
+      var newTeams=oldTeams.map(function(t,i){
+        var oldName=String(t&&t.name||('Team '+(i+1)));
+        var newName=entered[i];
+        renameMap[oldName]=newName;
+        return Object.assign({},t,{name:newName});
+      });
+
+      /* Update team names inside the existing schedule while preserving every
+         score, played flag, field, time, stage and knockout placeholder. */
+      var newGames=arr(old.games).map(function(g){
+        if(!g)return g;
+        var copy=Object.assign({},g);
+        if(renameMap[String(copy.a)])copy.a=renameMap[String(copy.a)];
+        if(renameMap[String(copy.b)])copy.b=renameMap[String(copy.b)];
+        return copy;
+      });
+
+      /* Update historical goal/card team references so Scorers and Cards pages
+         continue to point to the corrected team name. */
+      var newGoals=arr(old.goals).map(function(g){
+        if(!g)return g;
+        var copy=Object.assign({},g);
+        if(renameMap[String(copy.team)])copy.team=renameMap[String(copy.team)];
+        return copy;
+      });
+      var newCards=arr(old.cards).map(function(card){
+        if(!card)return card;
+        var copy=Object.assign({},card);
+        if(renameMap[String(copy.team)])copy.team=renameMap[String(copy.team)];
+        return copy;
+      });
+
+      /* Atomic update of only the affected tournament branches. All other
+         Firebase data remains untouched. */
+      await firebase.database().ref('tournament').update({
+        teams:newTeams,
+        games:newGames,
+        goals:newGoals,
+        cards:newCards
+      });
+
+      var verify=await getShared();
+      var savedTeams=arr(verify.teams);
+      if(savedTeams.length!==8 || savedTeams.some(function(t,i){
+        return String(t&&t.name)!==entered[i];
+      })){
+        throw new Error('Firebase verification failed — the corrected team names were not saved.');
+      }
+
+      renderAll(verify);
+      alert('TEAM NAMES UPDATED: The corrected names were saved without changing the schedule, scores, goals, cards, rosters, or Group A/B assignments.');
+    }catch(e){
+      console.error('Team name override failed:',e);
+      alert('TEAM NAME UPDATE FAILED: '+(e&&e.message?e.message:'Firebase could not save the corrected team names.'));
+    }finally{
+      if(button){button.dataset.busy='0';button.disabled=false;button.textContent='SAVE TEAM NAME CHANGES';}
+    }
+  }
+
   function bindLast(){
     var save=document.getElementById('saveTeams'), rename=document.getElementById('saveTeamNames');
     if(save){
@@ -1028,7 +1120,7 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
     if(rename){
       rename.addEventListener('click',function(e){
         e.preventDefault();e.stopImmediatePropagation();
-        publishSetup(rename);
+        renameTeamsOnly(rename);
       },true);
     }
     startSharedListener();
