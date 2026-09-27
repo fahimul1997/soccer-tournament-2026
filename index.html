@@ -498,11 +498,25 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
             throw Error('Firebase did not verify the '+(goal?'goal':'card')+' record. Please try again.');
           }
 
-          await publish();
+          /* IMPORTANT: event records are already permanently stored in their
+             own Firebase push child. Do NOT call publish() here because publish()
+             can rebuild the legacy state arrays and overwrite a just-saved card.
+             Refresh directly from Firebase instead. */
+          if(typeof window.__refreshTournamentUI==='function'){
+            try{await window.__refreshTournamentUI();}catch(ignore){}
+          }
+          if(typeof window.__refreshPublic2==='function'){
+            try{await window.__refreshPublic2();}catch(ignore){}
+          }
 
           const status=$('activeGameStatus');
           if(status)status.textContent=(goal?'✓ Goal saved':'✓ Card saved')+' — '+item.team+(item.player?' • '+item.player:'');
-          alert((goal?'Goal':'Card')+' saved successfully. Public Schedule & Results and '+(goal?'Scorers':'Cards & Suspensions')+' have been updated.');
+          if(goal){
+            alert('✓ GOAL ADDED\n\n'+item.player+' — '+item.team+' ('+item.time+')\n\nScorers and the public Schedule & Results are updated from Firebase.');
+          }else{
+            const cardLabel=String(item.type||'').toLowerCase()==='red'?'🟥 RED CARD':'🟨 YELLOW CARD';
+            alert('✓ '+cardLabel+' ADDED\n\n'+item.player+' — '+item.team+' ('+item.time+')\n\nThe card is now saved in Firebase and is visible in Cards & Suspensions for the public.'); 
+          }
         }
       }catch(x){console.error(x);alert(x.message||String(x))}
     },true);
