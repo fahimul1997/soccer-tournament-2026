@@ -505,7 +505,6 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
           if(status)status.textContent=(goal?'✓ Goal saved':'✓ Card saved')+' — '+item.team+(item.player?' • '+item.player:'');
           alert((goal?'Goal':'Card')+' saved successfully. Public Schedule & Results and '+(goal?'Scorers':'Cards & Suspensions')+' have been updated.');
         }
-        }
       }catch(x){console.error(x);alert(x.message||String(x))}
     },true);
 
