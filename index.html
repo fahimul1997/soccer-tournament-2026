@@ -406,7 +406,7 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
       const score=e.target.closest&&e.target.closest('[data-save-score]');
       const player=e.target.closest&&e.target.closest('[data-save-player]');
       const remove=e.target.closest&&e.target.closest('[data-remove]');
-      const add=e.target.closest&&e.target.closest('#addPlayer,#complete,#lock,#addGoal,#addCard');
+      const add=e.target.closest&&e.target.closest('#addGoal,#addCard');
       if(!score&&!player&&!remove&&!add)return;
       e.preventDefault();e.stopImmediatePropagation();
       try{
@@ -1757,5 +1757,30 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
   }else{
     start();
   }
+})();
+</script>
+
+
+<script>
+/* FINAL ROSTER BUTTON CONTROLLER
+   Roster actions use the original authenticated admin state/save path.
+   The shared delegated controller above intentionally does not intercept
+   #addPlayer, #complete, or #lock, preventing event-capture conflicts.
+*/
+(function(){
+  function start(){
+    if(typeof window.adminRender!=='function')return;
+    var add=document.getElementById('addPlayer');
+    var complete=document.getElementById('complete');
+    var lock=document.getElementById('lock');
+
+    /* Ensure these controls are enabled unless the group stage is actually locked. */
+    var data=window.__AUTHORITATIVE_TOURNAMENT||window.__PUBLIC_TOURNAMENT_DATA||{};
+    var locked=data.locked===true;
+    [add,complete].forEach(function(b){if(b){b.disabled=locked;b.style.pointerEvents='auto';}});
+    if(lock){lock.disabled=locked;lock.style.pointerEvents='auto';}
+  }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',start);
+  else start();
 })();
 </script>
