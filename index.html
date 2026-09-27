@@ -1164,11 +1164,24 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
           var aGoals=gs.filter(function(x){return String(x&&x.team||'')===aName;});
           var bGoals=gs.filter(function(x){return String(x&&x.team||'')===bName;});
           function scorerList(list){
-            return list.length ? list.map(function(x){
-              return '<div class="scoreScorer"><span>'+esc2(x.player||'No scorer')+'</span>'+
-                (x.time&&x.time!=='-'?'<span class="scoreMinute">'+esc2(x.time)+'</span>':'')+
-              '</div>';
-            }).join('') : '';
+            if(!list.length)return '';
+            var grouped={};
+            var order=[];
+            list.forEach(function(x){
+              var player=String(x&&x.player||'No scorer');
+              if(!grouped[player]){
+                grouped[player]=[];
+                order.push(player);
+              }
+              if(x&&x.time&&x.time!=='-'){
+                grouped[player].push(String(x.time).trim());
+              }
+            });
+            return order.map(function(player){
+              var minutes=grouped[player];
+              var minuteHtml=minutes.length?' <span class="scoreMinute">('+minutes.map(function(m){return esc2(m+(m.slice(-1)==="'"?'':"'"));}).join(', ')+')</span>':'';
+              return '<div class="scoreScorer"><span>'+esc2(player)+'</span>'+minuteHtml+'</div>';
+            }).join('');
           }
           var status=g.played===true ? 'Full-time' : (g.time||'Scheduled');
           var cardHtml=cs.length?
