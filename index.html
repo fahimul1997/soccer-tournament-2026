@@ -63,6 +63,32 @@ document.addEventListener('DOMContentLoaded',function(){
 });
 </script><script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script><script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script><script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script><script src="firebase-config.js"></script>
 <script>
+document.addEventListener('DOMContentLoaded',function(){
+  var loginBtn=document.getElementById('login');
+  if(loginBtn){
+    loginBtn.addEventListener('click',async function(e){
+      e.preventDefault();
+      var email=(document.getElementById('email')||{}).value||'';
+      var password=(document.getElementById('password')||{}).value||'';
+      var err=document.getElementById('loginError');
+      if(err) err.textContent='';
+      if(!email||!password){if(err)err.textContent='Enter your admin email and password.';return;}
+      try{
+        if(!window.FIREBASE_CONFIG||!window.FIREBASE_CONFIG.apiKey) throw new Error('Firebase configuration is not loaded. Please refresh the page.');
+        if(!firebase.apps.length) firebase.initializeApp(window.FIREBASE_CONFIG);
+        var credential=await firebase.auth().signInWithEmailAndPassword(email.trim(),password);
+        window.__adminUserLoggedIn=!!credential.user;
+        document.getElementById('loginModal').classList.add('hidden');
+        showTournamentTab('admin');
+      }catch(e){
+        console.error('Admin login failed:',e);
+        if(err) err.textContent=e&&e.message?e.message:'Login failed. Check your email and password.';
+      }
+    });
+  }
+});
+</script>
+<script>
 (()=>{const $=id=>document.getElementById(id);let db,auth,user=null,selectedGame=null,state={teams:[],games:[],goals:[],cards:[],locked:false,raffleComplete:false,};const empty=()=>({teams:Array.from({length:8},(_,i)=>({name:'Team '+(i+1),group:i<4?'A':'B',roster:[],complete:false})),games:[],goals:[],cards:[],locked:false});const esc=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));const teams=()=>'<option value="">Select team</option>'+state.teams.map((t,i)=>'<option value="'+i+'">'+esc(t.name)+' (Group '+t.group+')</option>').join('');const players=i=>i!==''?(state.teams[+i]?.roster||[]):[];const popt=i=>'<option value="">Select player</option>'+players(i).map((p,j)=>'<option value="'+j+'">'+esc(p)+'</option>').join('')+'<option value="__NO_SCORER__">No scorer (forfeit)</option>';function gameOpts(){return '<option value="">Select game</option>'+state.games.map((g,i)=>'<option value="'+i+'">Game '+(i+1)+' • '+esc(g.time||'')+' • '+esc(g.field||'')+' • '+esc(g.a)+' vs '+esc(g.b)+'</option>').join('')}function stats(group){let a=state.teams.filter(t=>t.group===group).map(t=>({t:t.name,gp:0,w:0,d:0,l:0,gf:0,ga:0,p:0}));state.games.filter(g=>g.stage==='Group Stage').forEach(g=>{let x=a.find(z=>z.t===g.a),y=a.find(z=>z.t===g.b);if(!x||!y)return;x.gp++;y.gp++;x.gf+=+g.sa;x.ga+=+g.sb;y.gf+=+g.sb;y.ga+=+g.sa;if(g.sa>g.sb){x.w++;y.l++;x.p+=3}else if(g.sb>g.sa){y.w++;x.l++;y.p+=3}else{x.d++;y.d++;x.p++;y.p++}});a.forEach(x=>x.gd=x.gf-x.ga);return a.sort((x,y)=>y.p-x.p||y.gd-x.gd||y.gf-x.gf||x.t.localeCompare(y.t))}function render(){
 state.teams=(Array.isArray(state.teams)?state.teams:Object.values(state.teams||{})).filter(Boolean);state.teams=Array.from({length:8},(_,i)=>{let t=state.teams[i]||{};let roster=(Array.isArray(t.roster)?t.roster:Object.values(t.roster||{})).filter(Boolean).map(p=>typeof p==='string'?p:(p&&p.name?String(p.name):String(p||''))).filter(Boolean);return {name:String(t.name||('Team '+(i+1))),group:t.group==='B'?'B':'A',roster,complete:!!t.complete}});state.games=(Array.isArray(state.games)?state.games:Object.values(state.games||{})).filter(g=>g&&typeof g==='object').map(g=>({field:g.field||'',stage:g.stage||'Group Stage',date:g.date||'',time:g.time||'',a:g.a||'TBD',b:g.b||'TBD',sa:Number.isFinite(+g.sa)?+g.sa:0,sb:Number.isFinite(+g.sb)?+g.sb:0}));state.goals=(Array.isArray(state.goals)?state.goals:Object.values(state.goals||{})).filter(Boolean);state.cards=(Array.isArray(state.cards)?state.cards:Object.values(state.cards||{})).filter(Boolean);state.locked=!!state.locked;state.raffleComplete=state.raffleComplete===true||state.games.length===15;
 // Render Teams & Players first so the public roster remains visible even if another section encounters bad/incomplete data.
