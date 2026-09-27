@@ -2736,3 +2736,71 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',load);else load();
 })();
 </script>
+
+<script>
+/* FINAL SCORER PICKER CONTROLLER
+   Rebuilds the scorer/card player lists after a scheduled game is selected.
+   This runs after the other admin controllers so the lists cannot be reset to
+   an empty state by an earlier render.
+*/
+(function(){
+  function el(id){return document.getElementById(id);}
+  function arr(v){return Array.isArray(v)?v:Object.keys(v||{}).sort(function(a,b){return (+a)-(+b);}).map(function(k){return v[k];});}
+  function esc(v){return String(v==null?'':v).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c];});}
+  function selectedGameData(){
+    var sel=el('activeGameSelect'); if(!sel||sel.value==='')return null;
+    var data=window.__TOURNAMENT_STATE||{}; var games=arr(data.games); var g=games[+sel.value];
+    if(!g)return null; return {data:data,g:g,index:+sel.value};
+  }
+  function matchTeams(d){
+    var g=d.g, teams=arr(d.data.teams);
+    if(g.stage==='Semifinal 1'){
+      var a=teams.filter(function(t){return t.group==='A';}),b=teams.filter(function(t){return t.group==='B';});
+      return [a.length?rankingName(a,'A',0):'Group A #1',b.length?rankingName(b,'B',1):'Group B #2'];
+    }
+    if(g.stage==='Semifinal 2')return ['Group B #1','Group A #2'];
+    if(g.stage==='Final')return ['Semifinal 1 Winner','Semifinal 2 Winner'];
+    return [g.a||'TBD',g.b||'TBD'];
+  }
+  function rankingName(list,group,index){
+    /* Group-stage standings are already resolved by the site's stats function. */
+    try{if(typeof stats==='function'){var s=stats(group);if(s[index]&&s[index].t)return s[index].t;}}catch(_){ }
+    return 'Group '+group+' #'+(index+1);
+  }
+  function build(){
+    var d=selectedGameData(); if(!d)return;
+    var names=matchTeams(d),teams=arr(d.data.teams);
+    function teamOptions(){
+      var html='<option value="">Select team</option>';
+      names.forEach(function(name){
+        var ix=teams.findIndex(function(t){return t&&t.name===name;});
+        if(ix>=0)html+='<option value="'+ix+'">'+esc(name)+'</option>';
+      });
+      return html;
+    }
+    function playersFor(teamSel,playerSel,allowNoScorer){
+      var tix=teamSel?teamSel.value:''; var p= tix!=='' && teams[+tix] ? arr(teams[+tix].roster) : [];
+      var html='<option value="">Select scorer</option>'+p.map(function(name,i){return '<option value="'+i+'">'+esc(typeof name==='string'?name:(name&&name.name)||'Player')+'</option>';}).join('');
+      if(allowNoScorer)html+='<option value="__NO_SCORER__">No scorer (forfeit)</option>';
+      if(playerSel)playerSel.innerHTML=html;
+    }
+    var gt=el('goalTeam'),gp=el('goalPlayer'),ct=el('cardTeam'),cp=el('cardPlayer');
+    if(gt){var old=gt.value;gt.innerHTML=teamOptions();if(old!==''&&Array.from(gt.options).some(function(o){return o.value===old}))gt.value=old;else gt.value='';playersFor(gt,gp,true);}
+    if(ct){var oldc=ct.value;ct.innerHTML=teamOptions();if(oldc!==''&&Array.from(ct.options).some(function(o){return o.value===oldc}))ct.value=oldc;else ct.value='';playersFor(ct,cp,false);}
+    var label='Game '+(d.index+1)+' • '+(d.g.time||'')+' • '+(d.g.field||'')+' • '+names[0]+' vs '+names[1];
+    if(el('goalGame'))el('goalGame').textContent=label;
+    if(el('cardGame'))el('cardGame').textContent=label;
+    if(gt&&!gt.dataset.scorerBound){gt.dataset.scorerBound='1';gt.addEventListener('change',function(){playersFor(gt,gp,true);});}
+    if(ct&&!ct.dataset.cardPlayerBound){ct.dataset.cardPlayerBound='1';ct.addEventListener('change',function(){playersFor(ct,cp,false);});}
+  }
+  function bind(){
+    var sel=el('activeGameSelect'); if(!sel){setTimeout(bind,400);return;}
+    if(sel.dataset.scorerController!=='1'){
+      sel.dataset.scorerController='1';
+      sel.addEventListener('change',function(){setTimeout(build,0);});
+    }
+    build();
+  }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',bind);else bind();
+})();
+</script>
