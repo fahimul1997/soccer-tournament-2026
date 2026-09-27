@@ -827,3 +827,220 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',fixPublicStandings);else fixPublicStandings();
 })();
 </script>
+<script>
+/* SHARED LIVE TOURNAMENT DATA — single authoritative public/admin sync.
+   This runs last so older render/save handlers cannot prevent shared Firebase publishing. */
+(function(){
+  var retryTimer=null, liveRef=null;
+
+  function arr(x){return Array.isArray(x)?x:Object.values(x||{});}
+  function esc(x){return String(x==null?'':x).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]});}
+
+  function gamesFor(teams){
+    var A=teams.filter(function(t){return t.group==='A'}), B=teams.filter(function(t){return t.group==='B'});
+    function rounds(g){
+      return [
+        [[g[0].name,g[1].name],[g[2].name,g[3].name]],
+        [[g[0].name,g[2].name],[g[1].name,g[3].name]],
+        [[g[0].name,g[3].name],[g[1].name,g[2].name]]
+      ];
+    }
+    var ra=rounds(A), rb=rounds(B), out=[];
+    var slots=[
+      ['Field 1','10:00 AM'],['Field 2','10:00 AM'],
+      ['Field 1','10:50 AM'],['Field 2','10:50 AM'],
+      ['Field 1','11:40 AM'],['Field 2','11:40 AM'],
+      ['Field 1','12:30 PM'],['Field 2','12:30 PM'],
+      ['Field 1','1:20 PM'],['Field 2','1:20 PM'],
+      ['Field 1','2:10 PM'],['Field 2','2:10 PM']
+    ];
+    for(var r=0;r<3;r++){
+      [ra[r],rb[r]].forEach(function(pairSet,which){
+        pairSet.forEach(function(p,j){
+          var si=r*2+j, old=out.length;
+          out.push({field:slots[si][0],stage:'Group Stage',date:'',time:slots[si][1],
+            a:p[0],b:p[1],sa:0,sb:0,played:false});
+        });
+      });
+    }
+    out.push({field:'Field 1',stage:'Semifinal 1',date:'',time:'3:20 PM',a:'Group A #1',b:'Group B #2',sa:0,sb:0,played:false});
+    out.push({field:'Field 2',stage:'Semifinal 2',date:'',time:'4:05 PM',a:'Group B #1',b:'Group A #2',sa:0,sb:0,played:false});
+    out.push({field:'Field 1',stage:'Final',date:'',time:'5:25 PM',a:'Semifinal 1 Winner',b:'Semifinal 2 Winner',sa:0,sb:0,played:false});
+    return out;
+  }
+
+  function normalizeTeams(data){
+    var old=arr(data.teams), out=[];
+    for(var i=0;i<8;i++){
+      var t=old[i]||{};
+      out.push({
+        name:String(t.name||('Team '+(i+1))),
+        group:t.group==='B'?'B':'A',
+        roster:arr(t.roster).map(function(p){return typeof p==='string'?p:(p&&p.name?String(p.name):String(p||''))}).filter(Boolean),
+        complete:t.complete===true
+      });
+    }
+    return out;
+  }
+
+  function renderAll(data){
+    data=data||{};
+    window.__PUBLIC_TOURNAMENT_DATA=data;
+    if(typeof renderPublic2==='function')renderPublic2(data);
+
+    /* Scorers */
+    var goals=arr(data.goals), scorer=document.getElementById('scorerList');
+    if(scorer){
+      var counts={};
+      goals.forEach(function(g){
+        var key=String(g.team||'')+'|'+String(g.player||'No scorer');
+        counts[key]=(counts[key]||0)+1;
+      });
+      var rows=Object.keys(counts).map(function(k){
+        var p=k.split('|'); return {player:p[1],team:p[0],goals:counts[k]};
+      }).sort(function(a,b){return b.goals-a.goals||a.player.localeCompare(b.player)});
+      scorer.innerHTML=rows.length?
+        '<div class="scroll"><table><tr><th>#</th><th>Player</th><th>Team</th><th>Goals</th></tr>'+
+        rows.map(function(r,i){return '<tr><td>'+(i+1)+'</td><td>'+esc(r.player)+'</td><td>'+esc(r.team)+'</td><td><b>'+r.goals+'</b></td></tr>'}).join('')+
+        '</table></div>':'<p class="muted">No goals recorded.</p>';
+    }
+
+    /* Cards */
+    var cards=arr(data.cards), summary=document.getElementById('cardSummary'), history=document.getElementById('cardHistory');
+    if(summary){
+      var pc={};
+      cards.forEach(function(c){
+        var k=String(c.team||'')+'|'+String(c.player||'');
+        if(!pc[k])pc[k]={team:c.team||'',player:c.player||'',y:0,r:0};
+        if(c.type==='yellow')pc[k].y++; else if(c.type==='red')pc[k].r++;
+      });
+      summary.innerHTML=Object.values(pc).map(function(x){
+        var triggers=Math.floor(x.y/2)+x.r;
+        return '<div class="card"><b>'+esc(x.player)+'</b> — '+esc(x.team)+
+          ' <span class="pill">🟨 '+x.y+'</span><span class="pill">🟥 '+x.r+'</span>'+
+          (triggers?'<div><b>Suspension triggers: '+triggers+'</b></div>':'')+'</div>';
+      }).join('')||'<p class="muted">No cards recorded.</p>';
+    }
+    if(history){
+      var games=arr(data.games);
+      history.innerHTML=cards.length?
+        '<div class="scroll"><table><tr><th>Game</th><th>Team</th><th>Player</th><th>Card</th><th>Time</th></tr>'+
+        cards.map(function(c){
+          var g=games[+c.game];
+          return '<tr><td>'+esc(g?g.stage:'Game '+(+c.game+1))+'</td><td>'+esc(c.team)+'</td><td>'+esc(c.player)+'</td><td>'+(c.type==='yellow'?'🟨 Yellow':'🟥 Red')+'</td><td>'+esc(c.time||'-')+'</td></tr>';
+        }).join('')+'</table></div>':'<p class="muted">No cards recorded.</p>';
+    }
+
+    if(typeof window.__fixPublicStandings==='function')window.__fixPublicStandings();
+  }
+
+  async function getShared(){
+    if(!window.firebase || !firebase.database)throw new Error('Firebase Database is not loaded.');
+    if(!liveRef)liveRef=firebase.database().ref('tournament');
+    var snap=await liveRef.once('value');
+    return snap.val()||{};
+  }
+
+  async function publishSetup(button){
+    if(button && button.dataset.busy==='1')return;
+    var authUser=window.firebase&&firebase.auth&&firebase.auth().currentUser;
+    if(!authUser){alert('Admin login required. Please log in again.');return;}
+
+    var ns=document.querySelectorAll('#teamEditor [data-name]');
+    var gs=document.querySelectorAll('#teamEditor [data-group]');
+    if(ns.length!==8||gs.length!==8){alert('The 8 team fields are not loaded. Please refresh the page.');return;}
+
+    var teams=Array.from(ns).map(function(el,i){
+      return {name:(el.value||'').trim()||('Team '+(i+1)),group:gs[i].value==='B'?'B':'A'};
+    });
+    var A=teams.filter(function(t){return t.group==='A'}),B=teams.filter(function(t){return t.group==='B'});
+    if(A.length!==4||B.length!==4){alert('Exactly 4 teams must be in each group. Group A: '+A.length+'/4, Group B: '+B.length+'/4.');return;}
+    var seen={};
+    for(var i=0;i<teams.length;i++){
+      var k=teams[i].name.toLowerCase();
+      if(seen[k]){alert('Team names must be unique.');return;}
+      seen[k]=true;
+    }
+
+    if(button){button.dataset.busy='1';button.disabled=true;button.textContent='PUBLISHING...';}
+    try{
+      var old=await getShared();
+      var oldTeams=arr(old.teams);
+      teams=teams.map(function(t,i){
+        var prior=oldTeams[i]||{};
+        return {name:t.name,group:t.group,roster:arr(prior.roster),complete:prior.complete===true};
+      });
+
+      /* Preserve every existing result while changing only the team/schedule setup. */
+      var oldGames=arr(old.games);
+      var games=gamesFor(teams).map(function(g,i){
+        var o=oldGames[i];
+        if(o && o.stage===g.stage && o.a===g.a && o.b===g.b){
+          g.sa=Number(o.sa||0); g.sb=Number(o.sb||0); g.played=o.played===true;
+        }
+        return g;
+      });
+
+      var payload={
+        teams:teams,
+        games:games,
+        goals:arr(old.goals),
+        cards:arr(old.cards),
+        locked:old.locked===true,
+        raffleComplete:true
+      };
+
+      await firebase.database().ref('tournament').set(payload);
+      var verify=await getShared();
+
+      var savedTeams=arr(verify.teams);
+      if(savedTeams.length!==8 || savedTeams.some(function(t,i){
+        return String(t.name)!==String(teams[i].name)||t.group!==teams[i].group;
+      }))throw new Error('Firebase verification failed — the shared tournament record did not match the data entered.');
+
+      renderAll(verify);
+      if(typeof showTournamentTab==='function')showTournamentTab('schedule');
+      alert('PUBLISHED: The tournament data is now saved in the shared Firebase database and will appear on every phone/browser viewing the public site.');
+    }catch(e){
+      console.error('Shared publish failed:',e);
+      alert('PUBLISH FAILED: '+(e&&e.message?e.message:'Firebase could not save the shared tournament data.'));
+    }finally{
+      if(button){button.dataset.busy='0';button.disabled=false;button.textContent=button.id==='saveTeams'?'SAVE RAFFLE RESULTS & GENERATE SCHEDULE':'SAVE TEAM NAME CHANGES';}
+    }
+  }
+
+  function startSharedListener(){
+    if(!window.firebase || !firebase.database){
+      if(!retryTimer)retryTimer=setTimeout(function(){retryTimer=null;startSharedListener();},1000);
+      return;
+    }
+    try{
+      liveRef=firebase.database().ref('tournament');
+      if(window.__sharedLiveHandler)liveRef.off('value',window.__sharedLiveHandler);
+      window.__sharedLiveHandler=function(snap){renderAll(snap.val()||{});};
+      liveRef.on('value',window.__sharedLiveHandler);
+      getShared().then(renderAll).catch(function(e){console.error('Shared initial read failed:',e);});
+    }catch(e){console.error('Shared Firebase listener failed:',e);}
+  }
+
+  function bindLast(){
+    var save=document.getElementById('saveTeams'), rename=document.getElementById('saveTeamNames');
+    if(save){
+      save.addEventListener('click',function(e){
+        e.preventDefault();e.stopImmediatePropagation();
+        publishSetup(save);
+      },true);
+    }
+    if(rename){
+      rename.addEventListener('click',function(e){
+        e.preventDefault();e.stopImmediatePropagation();
+        publishSetup(rename);
+      },true);
+    }
+    startSharedListener();
+  }
+
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',bindLast);
+  else bindLast();
+})();
+</script>
