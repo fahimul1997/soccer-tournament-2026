@@ -1055,7 +1055,7 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
       }).join('')+'</div>';
     }
 
-    /* Schedule */
+    /* Schedule & Results — includes the same Firebase goal records used by Scorers. */
     var gamesEl=document.getElementById('games');
     if(gamesEl){
       if(!complete){
@@ -1064,7 +1064,15 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
         var gg=games.filter(function(g){return g.stage==='Group Stage'});
         var kk=games.filter(function(g){return g.stage!=='Group Stage'});
         function gameHtml(g,idx){
-          return '<div class="card gameCard '+(g.stage!=='Group Stage'?'knockout':'')+'"><div><b>'+esc2(g.stage)+'</b> <span class="pill">'+esc2(g.field)+'</span></div><div class="muted" style="margin-top:4px"><b>Time:</b> '+esc2(g.time)+'</div><div class="match" style="margin-top:10px"><b>'+esc2(g.a)+'</b><span class="score">'+Number(g.sa||0)+' — '+Number(g.sb||0)+'</span><b class="right">'+esc2(g.b)+'</b></div><div class="muted">40-minute game • 5-minute halftime • 5-minute changeover/buffer</div></div>';
+          var gs=goals.filter(function(x){return Number(x&&x.game)===idx;});
+          var scorerHtml=gs.length?
+            '<div class="scorersBox"><b>⚽ Goal Scorers</b><br>'+
+            gs.map(function(x){
+              return '<span><b>'+esc2(x.team||'')+':</b> '+esc2(x.player||'No scorer')+
+                (x.time&&x.time!=='-'?' '+esc2(x.time):'')+'</span>';
+            }).join('<br>')+'</div>':
+            '<div class="scorersBox muted">No goals recorded yet.</div>';
+          return '<div class="card gameCard '+(g.stage!=='Group Stage'?'knockout':'')+'"><div><b>'+esc2(g.stage)+'</b> <span class="pill">'+esc2(g.field)+'</span></div><div class="muted" style="margin-top:4px"><b>Time:</b> '+esc2(g.time)+'</div><div class="match" style="margin-top:10px"><b>'+esc2(g.a)+'</b><span class="score">'+Number(g.sa||0)+' — '+Number(g.sb||0)+'</span><b class="right">'+esc2(g.b)+'</b></div><div class="muted">40-minute game • 5-minute halftime • 5-minute changeover/buffer</div>'+scorerHtml+'</div>';
         }
         gamesEl.innerHTML=gg.map(gameHtml).join('')+
           '<div class="notice"><b>🍽️ Lunch Break:</b> 30 minutes after all 12 group-stage matches. <b>Lunch will be provided.</b></div>'+
@@ -1091,6 +1099,51 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
     if(sb)sb.innerHTML=standings('B');
     var st=document.getElementById('standingsStatus');
     if(st){st.className='notice '+(complete?'completeNotice':'placeholderNotice');st.innerHTML=complete?'<b>✅ Official group standings:</b> The team draw is complete and Group A and Group B assignments are finalized.':'<b>📌 Placeholder standings:</b> Complete the team draw and generate the schedule first.'}
+
+    /* Scorers */
+    var scorerMap={};
+    goals.forEach(function(g){
+      var player=String(g&&g.player||'').trim();
+      if(!player)return;
+      var key=String(g.team||'')+'|'+player;
+      scorerMap[key]=(scorerMap[key]||0)+1;
+    });
+    var scorerRows=Object.keys(scorerMap).map(function(key){
+      var p=key.split('|');
+      return {player:p[1],team:p[0],goals:scorerMap[key]};
+    }).sort(function(a,b){return b.goals-a.goals||a.player.localeCompare(b.player)});
+    var scorerList=document.getElementById('scorerList');
+    if(scorerList){
+      scorerList.innerHTML=scorerRows.length?
+        '<div class="scroll"><table><tr><th>#</th><th>Player</th><th>Team</th><th>Goals</th></tr>'+
+        scorerRows.map(function(x,i){return '<tr><td>'+(i+1)+'</td><td>'+esc2(x.player)+'</td><td>'+esc2(x.team)+'</td><td><b>'+x.goals+'</b></td></tr>'}).join('')+
+        '</table></div>':'<p class="muted">No goals recorded.</p>';
+    }
+
+    /* Cards public summary/history */
+    var cardSummary=document.getElementById('cardSummary');
+    var cardMap={};
+    cards.forEach(function(c){
+      var key=String(c.team||'')+'|'+String(c.player||'');
+      if(!cardMap[key])cardMap[key]={team:c.team,player:c.player,y:0,r:0};
+      if(c.type==='yellow')cardMap[key].y++;else cardMap[key].r++;
+    });
+    if(cardSummary){
+      cardSummary.innerHTML=Object.keys(cardMap).map(function(k){
+        var x=cardMap[k];
+        return '<div class="card"><b>'+esc2(x.player)+'</b> — '+esc2(x.team)+' <span class="pill">🟨 '+x.y+'</span><span class="pill">🟥 '+x.r+'</span></div>';
+      }).join('')||'<p class="muted">No cards recorded.</p>';
+    }
+
+    var cardHistory=document.getElementById('cardHistory');
+    if(cardHistory){
+      cardHistory.innerHTML=cards.length?
+        '<div class="scroll"><table><tr><th>Game</th><th>Team</th><th>Player</th><th>Card</th><th>Time</th></tr>'+
+        cards.map(function(c){
+          var g=games[Number(c.game)];
+          return g?'<tr><td>'+esc2(g.stage)+'</td><td>'+esc2(c.team)+'</td><td>'+esc2(c.player)+'</td><td>'+(c.type==='yellow'?'🟨 Yellow':'🟥 Red')+'</td><td>'+esc2(c.time||'-')+'</td></tr>':'';
+        }).join('')+'</table></div>':'<p class="muted">No cards recorded.</p>';
+    }
 
     window.__PUBLIC_TOURNAMENT_DATA=data;
   }
