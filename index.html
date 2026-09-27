@@ -2738,69 +2738,142 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
 </script>
 
 <script>
-/* FINAL SCORER PICKER CONTROLLER
-   Rebuilds the scorer/card player lists after a scheduled game is selected.
-   This runs after the other admin controllers so the lists cannot be reset to
-   an empty state by an earlier render.
+/* FINAL SCORER PICKER V2
+   Always reads the current Firebase roster before building player lists.
+   This avoids stale in-memory state and guarantees Goals/Cards use the
+   same roster saved under /tournament/teams.
 */
 (function(){
   function el(id){return document.getElementById(id);}
-  function arr(v){return Array.isArray(v)?v:Object.keys(v||{}).sort(function(a,b){return (+a)-(+b);}).map(function(k){return v[k];});}
-  function esc(v){return String(v==null?'':v).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c];});}
-  function selectedGameData(){
-    var sel=el('activeGameSelect'); if(!sel||sel.value==='')return null;
-    var data=window.__TOURNAMENT_STATE||{}; var games=arr(data.games); var g=games[+sel.value];
-    if(!g)return null; return {data:data,g:g,index:+sel.value};
+  function arr(v){
+    if(Array.isArray(v))return v;
+    return Object.keys(v||{}).sort(function(a,b){return (+a)-(+b);}).map(function(k){return v[k];});
   }
-  function matchTeams(d){
-    var g=d.g, teams=arr(d.data.teams);
+  function esc(v){
+    return String(v==null?'':v).replace(/[&<>"']/g,function(c){
+      return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c];
+    });
+  }
+  function teamsOf(d){
+    return arr(d.teams).map(function(t){
+      t=t||{};
+      return {
+        name:String(t.name||''),
+        group:t.group==='B'?'B':'A',
+        roster:arr(t.roster).map(function(p){
+          return typeof p==='string'?p:String(p&&p.name||p||'');
+        }).filter(Boolean)
+      };
+    });
+  }
+  function groupStandings(d,group){
+    var teams=teamsOf(d), rows=teams.filter(function(t){return t.group===group;}).map(function(t){
+      return {t:t.name,gp:0,w:0,d:0,l:0,gf:0,ga:0,p:0};
+    });
+    arr(d.games).filter(function(g){return g&&g.stage==='Group Stage'&&g.played===true;}).forEach(function(g){
+      var x=rows.find(function(r){return r.t===g.a;}), y=rows.find(function(r){return r.t===g.b;});
+      if(!x||!y)return;
+      var a=Number(g.sa)||0,b=Number(g.sb)||0;
+      x.gp++;y.gp++;x.gf+=a;x.ga+=b;y.gf+=b;y.ga+=a;
+      if(a>b){x.w++;y.l++;x.p+=3;}
+      else if(b>a){y.w++;x.l++;y.p+=3;}
+      else{x.d++;y.d++;x.p++;y.p++;}
+    });
+    rows.forEach(function(r){r.gd=r.gf-r.ga;});
+    return rows.sort(function(a,b){return b.p-a.p||b.gd-a.gd||b.gf-a.gf||a.t.localeCompare(b.t);});
+  }
+  function matchTeams(g,d){
     if(g.stage==='Semifinal 1'){
-      var a=teams.filter(function(t){return t.group==='A';}),b=teams.filter(function(t){return t.group==='B';});
-      return [a.length?rankingName(a,'A',0):'Group A #1',b.length?rankingName(b,'B',1):'Group B #2'];
+      var a=groupStandings(d,'A'),b=groupStandings(d,'B');
+      return [a[0]?a[0].t:'Group A #1',b[1]?b[1].t:'Group B #2'];
     }
-    if(g.stage==='Semifinal 2')return ['Group B #1','Group A #2'];
-    if(g.stage==='Final')return ['Semifinal 1 Winner','Semifinal 2 Winner'];
+    if(g.stage==='Semifinal 2'){
+      var a2=groupStandings(d,'A'),b2=groupStandings(d,'B');
+      return [b2[0]?b2[0].t:'Group B #1',a2[1]?a2[1].t:'Group A #2'];
+    }
+    if(g.stage==='Final'){
+      var sf1=arr(d.games).find(function(x){return x&&x.stage==='Semifinal 1';});
+      var sf2=arr(d.games).find(function(x){return x&&x.stage==='Semifinal 2';});
+      var w1=sf1&&Number(sf1.sa)>Number(sf1.sb)?sf1.a:sf1&&Number(sf1.sb)>Number(sf1.sa)?sf1.b:'Semifinal 1 Winner';
+      var w2=sf2&&Number(sf2.sa)>Number(sf2.sb)?sf2.a:sf2&&Number(sf2.sb)>Number(sf2.sa)?sf2.b:'Semifinal 2 Winner';
+      return [w1,w2];
+    }
     return [g.a||'TBD',g.b||'TBD'];
   }
-  function rankingName(list,group,index){
-    /* Group-stage standings are already resolved by the site's stats function. */
-    try{if(typeof stats==='function'){var s=stats(group);if(s[index]&&s[index].t)return s[index].t;}}catch(_){ }
-    return 'Group '+group+' #'+(index+1);
+  async function read(){
+    var snap=await firebase.database().ref('tournament').once('value');
+    return snap.val()||{};
   }
-  function build(){
-    var d=selectedGameData(); if(!d)return;
-    var names=matchTeams(d),teams=arr(d.data.teams);
-    function teamOptions(){
-      var html='<option value="">Select team</option>';
-      names.forEach(function(name){
-        var ix=teams.findIndex(function(t){return t&&t.name===name;});
-        if(ix>=0)html+='<option value="'+ix+'">'+esc(name)+'</option>';
-      });
-      return html;
+  function fillPlayers(teamSel,playerSel,teams,allowNoScorer){
+    var ix=teamSel?teamSel.value:'';
+    var roster=ix!==''&&teams[+ix]?teams[+ix].roster:[];
+    var html='<option value="">Select player</option>';
+    roster.forEach(function(name,i){
+      html+='<option value="'+i+'">'+esc(name)+'</option>';
+    });
+    if(allowNoScorer)html+='<option value="__NO_SCORER__">No scorer (forfeit)</option>';
+    if(playerSel)playerSel.innerHTML=html;
+  }
+  async function build(){
+    var sel=el('activeGameSelect');
+    if(!sel||sel.value==='')return;
+    try{
+      var d=await read(), games=arr(d.games), g=games[+sel.value];
+      if(!g)return;
+      var teams=teamsOf(d), names=matchTeams(g,d);
+      function teamOptions(){
+        var html='<option value="">Select team</option>';
+        names.forEach(function(name){
+          var ix=teams.findIndex(function(t){return t.name===name;});
+          if(ix>=0)html+='<option value="'+ix+'">'+esc(name)+'</option>';
+        });
+        return html;
+      }
+      var gt=el('goalTeam'),gp=el('goalPlayer'),ct=el('cardTeam'),cp=el('cardPlayer');
+      if(gt){
+        var old=gt.value;
+        gt.innerHTML=teamOptions();
+        if(old!==''&&Array.from(gt.options).some(function(o){return o.value===old}))gt.value=old;
+        else if(gt.options.length>1)gt.value=gt.options[1].value;
+        fillPlayers(gt,gp,teams,true);
+      }
+      if(ct){
+        var oldc=ct.value;
+        ct.innerHTML=teamOptions();
+        if(oldc!==''&&Array.from(ct.options).some(function(o){return o.value===oldc}))ct.value=oldc;
+        else if(ct.options.length>1)ct.value=ct.options[1].value;
+        fillPlayers(ct,cp,teams,false);
+      }
+      var label='Game '+(+sel.value+1)+' • '+(g.time||'')+' • '+(g.field||'')+' • '+names[0]+' vs '+names[1];
+      if(el('goalGame'))el('goalGame').textContent=label;
+      if(el('cardGame'))el('cardGame').textContent=label;
+    }catch(e){
+      console.error('Scorer picker Firebase sync failed:',e);
     }
-    function playersFor(teamSel,playerSel,allowNoScorer){
-      var tix=teamSel?teamSel.value:''; var p= tix!=='' && teams[+tix] ? arr(teams[+tix].roster) : [];
-      var html='<option value="">Select scorer</option>'+p.map(function(name,i){return '<option value="'+i+'">'+esc(typeof name==='string'?name:(name&&name.name)||'Player')+'</option>';}).join('');
-      if(allowNoScorer)html+='<option value="__NO_SCORER__">No scorer (forfeit)</option>';
-      if(playerSel)playerSel.innerHTML=html;
-    }
-    var gt=el('goalTeam'),gp=el('goalPlayer'),ct=el('cardTeam'),cp=el('cardPlayer');
-    if(gt){var old=gt.value;gt.innerHTML=teamOptions();if(old!==''&&Array.from(gt.options).some(function(o){return o.value===old}))gt.value=old;else gt.value='';playersFor(gt,gp,true);}
-    if(ct){var oldc=ct.value;ct.innerHTML=teamOptions();if(oldc!==''&&Array.from(ct.options).some(function(o){return o.value===oldc}))ct.value=oldc;else ct.value='';playersFor(ct,cp,false);}
-    var label='Game '+(d.index+1)+' • '+(d.g.time||'')+' • '+(d.g.field||'')+' • '+names[0]+' vs '+names[1];
-    if(el('goalGame'))el('goalGame').textContent=label;
-    if(el('cardGame'))el('cardGame').textContent=label;
-    if(gt&&!gt.dataset.scorerBound){gt.dataset.scorerBound='1';gt.addEventListener('change',function(){playersFor(gt,gp,true);});}
-    if(ct&&!ct.dataset.cardPlayerBound){ct.dataset.cardPlayerBound='1';ct.addEventListener('change',function(){playersFor(ct,cp,false);});}
   }
   function bind(){
-    var sel=el('activeGameSelect'); if(!sel){setTimeout(bind,400);return;}
-    if(sel.dataset.scorerController!=='1'){
-      sel.dataset.scorerController='1';
-      sel.addEventListener('change',function(){setTimeout(build,0);});
+    var sel=el('activeGameSelect');
+    if(!sel){setTimeout(bind,400);return;}
+    if(sel.dataset.scorerControllerV2!=='1'){
+      sel.dataset.scorerControllerV2='1';
+      sel.addEventListener('change',function(){setTimeout(build,50);});
     }
-    build();
+    var gt=el('goalTeam'),ct=el('cardTeam');
+    if(gt&&!gt.dataset.scorerTeamBoundV2){
+      gt.dataset.scorerTeamBoundV2='1';
+      gt.addEventListener('change',function(){
+        read().then(function(d){fillPlayers(gt,el('goalPlayer'),teamsOf(d),true);});
+      });
+    }
+    if(ct&&!ct.dataset.cardTeamBoundV2){
+      ct.dataset.cardTeamBoundV2='1';
+      ct.addEventListener('change',function(){
+        read().then(function(d){fillPlayers(ct,el('cardPlayer'),teamsOf(d),false);});
+      });
+    }
+    if(sel.value!=='')build();
   }
-  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',bind);else bind();
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',bind);
+  else bind();
 })();
 </script>
