@@ -1986,9 +1986,12 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
       });
       sel.innerHTML=html;
       if(current!=='' && Number(current)>=0 && Number(current)<8)sel.value=current;
-      sel.disabled=d.locked;
-      sel.style.pointerEvents=d.locked?'none':'auto';
-      sel.style.opacity=d.locked?'0.7':'1';
+      /* Keep the roster team selector usable even after group-stage lock.
+         Locking prevents roster changes, not team selection/viewing. */
+      sel.disabled=false;
+      sel.removeAttribute('disabled');
+      sel.style.pointerEvents='auto';
+      sel.style.opacity='1';
       sel.style.color='#132238';
       sel.style.backgroundColor='#fff';
     }
