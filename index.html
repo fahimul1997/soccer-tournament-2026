@@ -426,8 +426,11 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
       const score=e.target.closest&&e.target.closest('[data-save-score]');
       const player=e.target.closest&&e.target.closest('[data-save-player]');
       const remove=e.target.closest&&e.target.closest('[data-remove]');
-      const add=e.target.closest&&e.target.closest('#addGoal,#addCard');
-      if(!score&&!player&&!remove&&!add)return;
+      /* Goal/Card writes are handled by the final authoritative event controllers below.
+         Do not intercept them here; this controller must not block the dedicated
+         Add Card handler from showing its save confirmation. */
+      const add=null;
+      if(!score&&!player&&!remove)return;
       e.preventDefault();e.stopImmediatePropagation();
       try{
         const data=await read(),teams=arr(data.teams),games=arr(data.games);
@@ -3244,5 +3247,142 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
     },true);
   }
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',bind);else bind();
+})();
+</script>
+
+<script>
+/* FINAL AUTHORITATIVE ADD CARD CONTROLLER
+   This is the only handler for Add Card. It writes one Firebase child, verifies
+   that exact child, refreshes the public data, and shows both an on-page success
+   message and an alert. Older legacy Add Card handlers are blocked at the button.
+*/
+(function(){
+  function el(id){return document.getElementById(id);}
+  function arr(v){return Array.isArray(v)?v:Object.keys(v||{}).sort(function(a,b){return (+a)-(+b);}).map(function(k){return v[k];});}
+  function esc(v){return String(v==null?'':v).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c];});}
+
+  function statusBox(){
+    var btn=el('addCard');
+    if(!btn)return null;
+    var box=el('addCardStatus');
+    if(!box){
+      box=document.createElement('div');
+      box.id='addCardStatus';
+      box.style.marginTop='10px';
+      box.style.padding='10px 12px';
+      box.style.borderRadius='8px';
+      box.style.fontWeight='700';
+      box.style.display='none';
+      btn.parentNode.appendChild(box);
+    }
+    return box;
+  }
+
+  function showStatus(message,ok){
+    var box=statusBox();
+    if(!box)return;
+    box.style.display='block';
+    box.style.background=ok?'#eefaf1':'#fff5f5';
+    box.style.border='1px solid '+(ok?'#b9dfc4':'#efb6bc');
+    box.style.color=ok?'#16803c':'#b91c1c';
+    box.innerHTML=message;
+  }
+
+  async function saveCard(button){
+    if(!window.firebase||!firebase.database)throw Error('Firebase is not loaded.');
+    if(!firebase.auth||!firebase.auth().currentUser)throw Error('Admin login required.');
+
+    var gameSelect=el('activeGameSelect');
+    var teamSelect=el('cardTeam');
+    var playerSelect=el('cardPlayer');
+    var typeSelect=el('cardType');
+    var timeInput=el('cardTime');
+
+    if(!gameSelect||gameSelect.value==='')throw Error('Please select the game being played first.');
+    if(!teamSelect||teamSelect.value==='')throw Error('Please select a team.');
+    if(!playerSelect||playerSelect.value==='')throw Error('Please select a player.');
+
+    var snap=await firebase.database().ref('tournament').once('value');
+    var data=snap.val()||{};
+    var games=arr(data.games),teams=arr(data.teams);
+    var gi=Number(gameSelect.value),ti=Number(teamSelect.value),pi=Number(playerSelect.value);
+    var game=games[gi],team=teams[ti];
+    if(!game)throw Error('The selected scheduled game could not be found.');
+    if(!team)throw Error('The selected team could not be found.');
+
+    var gameTeams=[String(game.a||''),String(game.b||'')];
+    if(gameTeams.indexOf(String(team.name))===-1)
+      throw Error('The selected team is not part of this scheduled game.');
+
+    var roster=arr(team.roster).map(function(p){
+      return typeof p==='string'?p:String(p&&p.name||p||'');
+    }).filter(Boolean);
+    if(!roster[pi])throw Error('Please select a valid rostered player.');
+
+    var type=typeSelect&&typeSelect.value==='red'?'red':'yellow';
+    var time=String(timeInput&&timeInput.value||'').trim()||'-';
+    var item={game:gi,team:team.name,player:roster[pi],type:type,time:time};
+
+    /* push() creates a unique event record, so one new card cannot overwrite
+       an earlier card. Firebase resolves the set() promise after the write. */
+    var eventRef=firebase.database().ref('tournament/cards').push();
+    await eventRef.set(item);
+
+    /* Verify the exact child that was just written before reporting success. */
+    var verify=(await eventRef.once('value')).val();
+    if(!verify || Number(verify.game)!==gi ||
+       String(verify.team||'')!==String(item.team) ||
+       String(verify.player||'')!==String(item.player) ||
+       String(verify.type||'')!==String(item.type) ||
+       String(verify.time||'-')!==String(item.time||'-')){
+      try{await eventRef.remove();}catch(ignore){}
+      throw Error('Firebase could not verify the card record. Please try again.');
+    }
+
+    if(timeInput)timeInput.value='';
+
+    /* Refresh the public renderers from Firebase. */
+    if(typeof window.__refreshPublic2==='function'){
+      try{await window.__refreshPublic2();}catch(e){console.warn('Public card refresh failed:',e);}
+    }
+    if(typeof window.__refreshTournamentUI==='function'){
+      try{await window.__refreshTournamentUI();}catch(e){console.warn('Admin card refresh failed:',e);}
+    }
+
+    var label=type==='red'?'🟥 RED CARD':'🟨 YELLOW CARD';
+    showStatus('✓ '+label+' ADDED — '+esc(item.player)+' • '+esc(item.team)+' • '+esc(item.time)+'<br><span style="font-weight:600">Saved to Firebase and updated in Cards & Suspensions.</span>',true);
+    alert('✓ '+label+' ADDED\\n\\n'+item.player+' — '+item.team+' ('+item.time+')\\n\\nThe card was successfully saved to Firebase and is now visible in Cards & Suspensions.');
+  }
+
+  function bind(){
+    var btn=el('addCard');
+    if(!btn){setTimeout(bind,400);return;}
+    if(btn.dataset.authoritativeCardBound==='1')return;
+    btn.dataset.authoritativeCardBound='1';
+
+    /* Capture on the actual button. This runs before the legacy onclick handler. */
+    btn.addEventListener('click',function(e){
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      if(btn.dataset.savingCard==='1')return;
+      btn.dataset.savingCard='1';
+      var old=btn.textContent;
+      btn.disabled=true;
+      btn.textContent='Saving Card…';
+      showStatus('Saving card to Firebase…',true);
+      saveCard(btn).catch(function(err){
+        console.error('Add Card failed:',err);
+        showStatus('✕ Card was not saved: '+esc(err&&err.message?err.message:err),false);
+        alert('Could not add card: '+(err&&err.message?err.message:err));
+      }).finally(function(){
+        btn.disabled=false;
+        btn.textContent=old||'Add Card';
+        btn.dataset.savingCard='0';
+      });
+    },true);
+  }
+
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',bind);
+  else bind();
 })();
 </script>
