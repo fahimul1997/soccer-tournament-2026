@@ -29,13 +29,7 @@ function renderPublicFallback(){
   var s=document.getElementById('games');
   if(s && !s.dataset.liveRendered) s.innerHTML=
     '<div class="notice"><b>Group Stage Schedule</b><br>40-minute games • 5-minute halftime • 5-minute changeover/buffer</div>'+
-    '<div class="grid">'+
-    '<div class="card"><h3>10:00 AM</h3><div>Field 1 • Game 1: Group A Team 1 vs Group A Team 2</div><div>Field 2 • Game 2: Group B Team 1 vs Group B Team 2</div></div>'+
-    '<div class="card"><h3>10:50 AM</h3><div>Field 1 • Game 3: Group B Team 1 vs Group B Team 3</div><div>Field 2 • Game 4: Group A Team 1 vs Group A Team 3</div></div>'+
-    '<div class="card"><h3>11:40 AM</h3><div>Field 1 • Game 5: Group A Team 1 vs Group A Team 4</div><div>Field 2 • Game 6: Group B Team 1 vs Group B Team 4</div></div>'+
-    '<div class="card"><h3>12:30 PM</h3><div>Field 1 • Game 7: Group B Team 2 vs Group B Team 3</div><div>Field 2 • Game 8: Group A Team 2 vs Group A Team 3</div></div>'+
-    '<div class="card"><h3>1:20 PM</h3><div>Field 1 • Game 9: Group A Team 2 vs Group A Team 4</div><div>Field 2 • Game 10: Group B Team 2 vs Group B Team 4</div></div>'+
-    '<div class="card"><h3>2:10 PM</h3><div>Field 1 • Game 11: Group B Team 3 vs Group B Team 4</div><div>Field 2 • Game 12: Group A Team 3 vs Group A Team 4</div></div></div>'+
+    '<div class="grid"><div class="card"><h3>10:00 AM</h3><div class="card">Field 1 • Game 1: Group A Team 1 vs Group A Team 2</div><div class="card">Field 2 • Game 2: Group A Team 3 vs Group A Team 4</div></div><div class="card"><h3>10:50 AM</h3><div class="card">Field 1 • Game 3: Group B Team 1 vs Group B Team 2</div><div class="card">Field 2 • Game 4: Group B Team 3 vs Group B Team 4</div></div><div class="card"><h3>11:40 AM</h3><div class="card">Field 1 • Game 5: Group A Team 1 vs Group A Team 3</div><div class="card">Field 2 • Game 6: Group A Team 2 vs Group A Team 4</div></div><div class="card"><h3>12:30 PM</h3><div class="card">Field 1 • Game 7: Group B Team 1 vs Group B Team 3</div><div class="card">Field 2 • Game 8: Group B Team 2 vs Group B Team 4</div></div><div class="card"><h3>1:20 PM</h3><div class="card">Field 1 • Game 9: Group A Team 1 vs Group A Team 4</div><div class="card">Field 2 • Game 10: Group A Team 2 vs Group A Team 3</div></div><div class="card"><h3>2:10 PM</h3><div class="card">Field 1 • Game 11: Group B Team 1 vs Group B Team 4</div><div class="card">Field 2 • Game 12: Group B Team 2 vs Group B Team 3</div></div></div></div></div></div>'+
     '<div class="notice"><b>🍽️ Lunch Break:</b> 30 minutes after all 12 group-stage matches. Lunch will be provided.</div>'+
     '<div class="card"><h3>🏆 Knockout Stage</h3><div class="card" style="margin:10px 0;border-left:4px solid #062f63"><h3>⚽ Semifinals</h3><p>3:20 PM • Field 1 • Semifinal 1: Group A #1 vs Group B #2</p><p>4:05 PM • Field 2 • Semifinal 2: Group B #1 vs Group A #2</p></div><div class="card" style="margin:10px 0;border-left:4px solid #c40012"><h3>🥇 Final</h3><p>5:25 PM • Field 1 • Final: Semifinal 1 Winner vs Semifinal 2 Winner</p></div></div>';
 }
@@ -632,17 +626,24 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
   function esc2(x){return String(x==null?'':x).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]})}
   function arr2(x){return Array.isArray(x)?x:Object.values(x||{})}
   function buildGames2(teams){
-    var A=[],B=[];
-    teams.forEach(function(t,i){(t.group==='B'?B:A).push(i)});
-    var pa=[],pb=[];
-    for(var i=0;i<4;i++)for(var j=i+1;j<4;j++){pa.push({a:teams[A[i]].name,b:teams[A[j]].name});pb.push({a:teams[B[i]].name,b:teams[B[j]].name})}
-    var games=[];
-    for(var slot=0;slot<6;slot++){
-      var mins=600+slot*50,hh=Math.floor(mins/60),mm=mins%60;
-      var tm=((hh+11)%12+1)+':'+String(mm).padStart(2,'0')+' '+(hh<12?'AM':'PM');
-      var a=pa[slot],b=pb[slot];
-      games.push({field:slot%2===0?'Field 1':'Field 2',stage:'Group Stage',time:tm,a:a.a,b:a.b,sa:0,sb:0,played:false});
-      games.push({field:slot%2===0?'Field 2':'Field 1',stage:'Group Stage',time:tm,a:b.a,b:b.b,sa:0,sb:0,played:false});
+    var A=teams.filter(function(t){return t.group==='A'}), B=teams.filter(function(t){return t.group==='B'});
+    var rounds=function(g){return[
+      [[g[0].name,g[1].name],[g[2].name,g[3].name]],
+      [[g[0].name,g[2].name],[g[1].name,g[3].name]],
+      [[g[0].name,g[3].name],[g[1].name,g[2].name]]
+    ]};
+    var ra=rounds(A), rb=rounds(B), games=[];
+    var slots=[
+      ['Field 1','10:00 AM'],['Field 2','10:00 AM'],
+      ['Field 1','10:50 AM'],['Field 2','10:50 AM'],
+      ['Field 1','11:40 AM'],['Field 2','11:40 AM'],
+      ['Field 1','12:30 PM'],['Field 2','12:30 PM'],
+      ['Field 1','1:20 PM'],['Field 2','1:20 PM'],
+      ['Field 1','2:10 PM'],['Field 2','2:10 PM']
+    ];
+    for(var r=0;r<3;r++){
+      ra[r].forEach(function(p,j){var si=r*4+j;games.push({field:slots[si][0],stage:'Group Stage',time:slots[si][1],a:p[0],b:p[1],sa:0,sb:0,played:false})});
+      rb[r].forEach(function(p,j){var si=(r+3)*4+j;games.push({field:slots[si][0],stage:'Group Stage',time:slots[si][1],a:p[0],b:p[1],sa:0,sb:0,played:false})});
     }
     games.push({field:'Field 1',stage:'Semifinal 1',time:'3:20 PM',a:'Group A #1',b:'Group B #2',sa:0,sb:0,played:false});
     games.push({field:'Field 2',stage:'Semifinal 2',time:'4:05 PM',a:'Group B #1',b:'Group A #2',sa:0,sb:0,played:false});
@@ -838,13 +839,11 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
 
   function gamesFor(teams){
     var A=teams.filter(function(t){return t.group==='A'}), B=teams.filter(function(t){return t.group==='B'});
-    function rounds(g){
-      return [
-        [[g[0].name,g[1].name],[g[2].name,g[3].name]],
-        [[g[0].name,g[2].name],[g[1].name,g[3].name]],
-        [[g[0].name,g[3].name],[g[1].name,g[2].name]]
-      ];
-    }
+    function rounds(g){return[
+      [[g[0].name,g[1].name],[g[2].name,g[3].name]],
+      [[g[0].name,g[2].name],[g[1].name,g[3].name]],
+      [[g[0].name,g[3].name],[g[1].name,g[2].name]]
+    ]};
     var ra=rounds(A), rb=rounds(B), out=[];
     var slots=[
       ['Field 1','10:00 AM'],['Field 2','10:00 AM'],
@@ -855,16 +854,8 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
       ['Field 1','2:10 PM'],['Field 2','2:10 PM']
     ];
     for(var r=0;r<3;r++){
-      ra[r].forEach(function(p,j){
-        var si=r*2;
-        out.push({field:slots[si][0],stage:'Group Stage',date:'',time:slots[si][1],
-          a:p[0],b:p[1],sa:0,sb:0,played:false});
-      });
-      rb[r].forEach(function(p,j){
-        var si=r*2+1;
-        out.push({field:slots[si][0],stage:'Group Stage',date:'',time:slots[si][1],
-          a:p[0],b:p[1],sa:0,sb:0,played:false});
-      });
+      ra[r].forEach(function(p,j){var si=r*4+j;out.push({field:slots[si][0],stage:'Group Stage',date:'',time:slots[si][1],a:p[0],b:p[1],sa:0,sb:0,played:false})});
+      rb[r].forEach(function(p,j){var si=(r+3)*4+j;out.push({field:slots[si][0],stage:'Group Stage',date:'',time:slots[si][1],a:p[0],b:p[1],sa:0,sb:0,played:false})});
     }
     out.push({field:'Field 1',stage:'Semifinal 1',date:'',time:'3:20 PM',a:'Group A #1',b:'Group B #2',sa:0,sb:0,played:false});
     out.push({field:'Field 2',stage:'Semifinal 2',date:'',time:'4:05 PM',a:'Group B #1',b:'Group A #2',sa:0,sb:0,played:false});
