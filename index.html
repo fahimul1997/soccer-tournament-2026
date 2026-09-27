@@ -2992,3 +2992,93 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
   else bind();
 })();
 </script>
+
+<script>
+/* AUTHORITATIVE ADD GOAL FIX
+   Capture the Add Goal click before all legacy handlers. Saves one goal as a
+   Firebase child, verifies it, then refreshes the public UI.
+*/
+(function(){
+  function $(id){return document.getElementById(id);}
+  function arr(v){return Array.isArray(v)?v:Object.keys(v||{}).sort(function(a,b){return (+a)-(+b);}).map(function(k){return v[k];});}
+
+  async function saveGoal(button){
+    var select=$('activeGameSelect'), teamSelect=$('goalTeam'), playerSelect=$('goalPlayer');
+    var time=$('goalTime');
+    if(!select || select.value==='') throw Error('Please select the game being played first.');
+    if(!teamSelect || teamSelect.value==='') throw Error('Please select the scoring team.');
+    if(!playerSelect || playerSelect.value==='' || playerSelect.value==='__NO_SCORER__')
+      throw Error('Please select the goal scorer.');
+
+    if(!window.firebase || !firebase.database) throw Error('Firebase is not loaded.');
+    if(!firebase.auth || !firebase.auth().currentUser) throw Error('Admin login required.');
+
+    var snap=await firebase.database().ref('tournament').once('value');
+    var data=snap.val()||{}, games=arr(data.games), teams=arr(data.teams);
+    var gi=Number(select.value), ti=Number(teamSelect.value), pi=Number(playerSelect.value);
+    var game=games[gi], team=teams[ti];
+    if(!game) throw Error('The selected scheduled game could not be found.');
+    if(!team) throw Error('The selected team could not be found.');
+
+    var gameTeams=[String(game.a||''),String(game.b||'')];
+    if(gameTeams.indexOf(String(team.name))===-1)
+      throw Error('The selected team is not part of this scheduled game.');
+
+    var roster=arr(team.roster).map(function(p){
+      return typeof p==='string'?p:String(p&&p.name||p||'');
+    }).filter(Boolean);
+    if(!roster[pi]) throw Error('Please select a valid rostered player.');
+
+    var item={
+      game:gi,
+      team:team.name,
+      player:roster[pi],
+      time:String(time&&time.value||'').trim()||'-'
+    };
+
+    var eventRef=firebase.database().ref('tournament/goals').push();
+    await eventRef.set(item);
+    var verify=(await eventRef.once('value')).val();
+    if(!verify || Number(verify.game)!==gi ||
+       String(verify.team)!==String(item.team) ||
+       String(verify.player)!==String(item.player) ||
+       String(verify.time)!==String(item.time)){
+      await eventRef.remove();
+      throw Error('Firebase could not verify the goal record. Please try again.');
+    }
+
+    if(time)time.value='';
+    if(typeof window.__refreshTournamentUI==='function')await window.__refreshTournamentUI();
+    if(typeof window.__refreshPublic2==='function')await window.__refreshPublic2();
+
+    var status=$('activeGameStatus');
+    if(status)status.textContent='✓ Goal recorded — '+item.team+' • '+item.player+' • '+item.time;
+    alert('✓ GOAL RECORDED\n\nGame '+(gi+1)+'\n'+item.team+' — '+item.player+' ('+item.time+')\n\nIt is now saved under this game and included in the Scorers tab.');
+  }
+
+  function bind(){
+    if(window.__authoritativeAddGoalFixBound)return;
+    window.__authoritativeAddGoalFixBound=true;
+    document.addEventListener('click',function(e){
+      var button=e.target&&e.target.closest?e.target.closest('#addGoal'):null;
+      if(!button)return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      if(button.dataset.saving==='1')return;
+      button.dataset.saving='1';
+      var old=button.textContent;
+      button.disabled=true;
+      button.textContent='Saving Goal…';
+      saveGoal(button).catch(function(err){
+        console.error('Add Goal failed:',err);
+        alert('Could not record goal: '+(err&&err.message?err.message:err));
+      }).finally(function(){
+        button.disabled=false;
+        button.textContent=old||'Add Goal';
+        button.dataset.saving='0';
+      });
+    },true);
+  }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',bind);else bind();
+})();
+</script>
