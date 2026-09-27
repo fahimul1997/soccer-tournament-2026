@@ -1784,3 +1784,85 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
   else start();
 })();
 </script>
+<script>
+/* FINAL DIRECT ROSTER SAVE
+   The roster controls write only the requested roster branch to Firebase.
+   This bypasses legacy state/render handlers so player additions cannot be
+   lost by a competing renderer or stale local state.
+*/
+(function(){
+  var bound=false;
+  function arr(v){return Array.isArray(v)?v:Object.values(v||{});}
+  function db(){return window.firebase&&firebase.database?firebase.database().ref('tournament'):null;}
+  async function get(){
+    var r=db(); if(!r)throw Error('Firebase database is not available. Please refresh.');
+    var s=await r.once('value'); return s.val()||{};
+  }
+  async function saveRoster(index, roster){
+    var r=db(); if(!r)throw Error('Firebase database is not available. Please refresh.');
+    await r.update({'teams/'+index+'/roster':roster});
+  }
+  function wire(){
+    if(bound)return;
+    var add=document.getElementById('addPlayer');
+    var complete=document.getElementById('complete');
+    var lock=document.getElementById('lock');
+    if(!add||!complete||!lock){setTimeout(wire,500);return;}
+    bound=true;
+
+    add.onclick=async function(e){
+      e.preventDefault(); e.stopImmediatePropagation();
+      var user=window.firebase&&firebase.auth&&firebase.auth().currentUser;
+      if(!user){alert('Admin login required.');return;}
+      try{
+        var data=await get(), teams=arr(data.teams), i=document.getElementById('rt').value;
+        var raw=(document.getElementById('player').value||'').trim();
+        if(i==='')throw Error('Select a team.');
+        if(!raw)throw Error('Enter one or more player names.');
+        if(data.locked===true)throw Error('Group stage is locked. No new players can be added.');
+        var team=teams[+i];
+        if(!team)throw Error('Selected team was not found.');
+        if(team.complete===true)throw Error('This roster is marked complete.');
+        var roster=arr(team.roster).slice();
+        var names=raw.split(/[,\n]+/).map(function(x){return x.trim();}).filter(Boolean);
+        var fresh=[];
+        names.forEach(function(n){
+          if(!roster.some(function(p){return String(p).toLowerCase()===n.toLowerCase();}) &&
+             !fresh.some(function(p){return String(p).toLowerCase()===n.toLowerCase();})){
+            fresh.push(n);
+          }
+        });
+        if(roster.length+fresh.length>15)throw Error('Maximum 15 players per team. This team has '+roster.length+' players.');
+        if(!fresh.length)throw Error('All entered players are already on this roster.');
+        roster=roster.concat(fresh);
+        await saveRoster(+i,roster);
+        document.getElementById('player').value='';
+        alert(fresh.length+' player'+(fresh.length===1?'':'s')+' added to '+String(team.name||('Team '+(+i+1)))+'. Roster: '+roster.length+'/15.');
+      }catch(err){console.error('Direct roster add failed:',err);alert(err.message||String(err));}
+    };
+
+    complete.onclick=async function(e){
+      e.preventDefault(); e.stopImmediatePropagation();
+      var user=window.firebase&&firebase.auth&&firebase.auth().currentUser;
+      if(!user){alert('Admin login required.');return;}
+      try{
+        var data=await get(),teams=arr(data.teams),i=document.getElementById('rt').value;
+        if(i==='')throw Error('Select a team.');
+        if(data.locked===true)throw Error('Group stage is locked.');
+        if(!teams[+i])throw Error('Selected team was not found.');
+        await db().update({'teams/'+(+i)+'/complete':teams[+i].complete!==true});
+      }catch(err){console.error('Direct roster complete failed:',err);alert(err.message||String(err));}
+    };
+
+    lock.onclick=async function(e){
+      e.preventDefault(); e.stopImmediatePropagation();
+      var user=window.firebase&&firebase.auth&&firebase.auth().currentUser;
+      if(!user){alert('Admin login required.');return;}
+      if(!confirm('Lock group-stage rosters? No new players can be added afterward.'))return;
+      try{await db().update({locked:true});}
+      catch(err){console.error('Direct roster lock failed:',err);alert(err.message||String(err));}
+    };
+  }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',wire);else wire();
+})();
+</script>
