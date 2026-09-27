@@ -64,6 +64,7 @@ document.addEventListener('DOMContentLoaded',function(){
 </script><script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script><script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script><script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script><script src="firebase-config.js"></script>
 <script>
 (()=>{const $=id=>document.getElementById(id);let db,auth,user=null,selectedGame=null,state={teams:[],games:[],goals:[],cards:[],locked:false,raffleComplete:false,};const empty=()=>({teams:Array.from({length:8},(_,i)=>({name:'Team '+(i+1),group:i<4?'A':'B',roster:[],complete:false})),games:[],goals:[],cards:[],locked:false});const esc=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));const teams=()=>'<option value="">Select team</option>'+state.teams.map((t,i)=>'<option value="'+i+'">'+esc(t.name)+' (Group '+t.group+')</option>').join('');const players=i=>i!==''?(state.teams[+i]?.roster||[]):[];const popt=i=>'<option value="">Select player</option>'+players(i).map((p,j)=>'<option value="'+j+'">'+esc(p)+'</option>').join('');const goalPopt=i=>popt(i)+'<option value="__NO_SCORER__">No scorer (forfeit)</option>';function gameOpts(){return '<option value="">Select game</option>'+state.games.map((g,i)=>'<option value="'+i+'">Game '+(i+1)+' • '+esc(g.time||'')+' • '+esc(g.field||'')+' • '+esc(resolvedGameTeams(g)[0])+' vs '+esc(resolvedGameTeams(g)[1])+'</option>').join('')}function stats(group){let a=state.teams.filter(t=>t.group===group).map(t=>({t:t.name,gp:0,w:0,d:0,l:0,gf:0,ga:0,p:0}));state.games.filter(g=>g.stage==='Group Stage').forEach(g=>{let x=a.find(z=>z.t===g.a),y=a.find(z=>z.t===g.b);if(!x||!y)return;x.gp++;y.gp++;x.gf+=+g.sa;x.ga+=+g.sb;y.gf+=+g.sb;y.ga+=+g.sa;if(g.sa>g.sb){x.w++;y.l++;x.p+=3}else if(g.sb>g.sa){y.w++;x.l++;y.p+=3}else{x.d++;y.d++;x.p++;y.p++}});a.forEach(x=>x.gd=x.gf-x.ga);return a.sort((x,y)=>y.p-x.p||y.gd-x.gd||y.gf-x.gf||x.t.localeCompare(y.t))}function knockoutLabel(g){if(g.stage==='Semifinal 1')return [stats('A')[0]?.t||'Group A #1',stats('B')[1]?.t||'Group B #2'];if(g.stage==='Semifinal 2')return [stats('B')[0]?.t||'Group B #1',stats('A')[1]?.t||'Group A #2'];if(g.stage==='Final'){let sf1=state.games.find(x=>x.stage==='Semifinal 1'),sf2=state.games.find(x=>x.stage==='Semifinal 2');let a=(sf1&&sf1.sa>sf1.sb)?sf1.a:(sf1&&sf1.sb>sf1.sa)?sf1.b:'Semifinal 1 Winner';let b=(sf2&&sf2.sa>sf2.sb)?sf2.a:(sf2&&sf2.sb>sf2.sa)?sf2.b:'Semifinal 2 Winner';return [a,b]}return [g.a,g.b]}function resolvedGameTeams(g){return knockoutLabel(g)}function render(){
+window.__TOURNAMENT_STATE=state;
 state.teams=(Array.isArray(state.teams)?state.teams:Object.values(state.teams||{})).filter(Boolean);state.teams=Array.from({length:8},(_,i)=>{let t=state.teams[i]||{};let roster=(Array.isArray(t.roster)?t.roster:Object.values(t.roster||{})).filter(Boolean).map(p=>typeof p==='string'?p:(p&&p.name?String(p.name):String(p||''))).filter(Boolean);return {name:String(t.name||('Team '+(i+1))),group:t.group==='B'?'B':'A',roster,complete:!!t.complete}});state.games=(Array.isArray(state.games)?state.games:Object.values(state.games||{})).filter(g=>g&&typeof g==='object').map(g=>({field:g.field||'',stage:g.stage||'Group Stage',date:g.date||'',time:g.time||'',a:g.a||'TBD',b:g.b||'TBD',sa:Number.isFinite(+g.sa)?+g.sa:0,sb:Number.isFinite(+g.sb)?+g.sb:0}));state.goals=(Array.isArray(state.goals)?state.goals:Object.values(state.goals||{})).filter(Boolean);state.cards=(Array.isArray(state.cards)?state.cards:Object.values(state.cards||{})).filter(Boolean);state.locked=!!state.locked;state.raffleComplete=state.raffleComplete===true||state.games.length===15;
 if(state.games.length===15){
   var canonicalA=state.teams.filter(function(t){return t.group==='A'}).map(function(t){return t.name});
@@ -93,7 +94,7 @@ $('games').innerHTML=state.games.length===15?groupGames.map((g)=>renderGame(g,st
 '<div class="notice"><b>🍽️ Lunch Break:</b> 30 minutes after all 12 group-stage matches. <b>Lunch will be provided.</b></div>'+
 (koGames.length?'<h3 style="margin-top:18px">🏆 Knockout Stage</h3>'+koGames.map(g=>renderGame(g,state.games.indexOf(g))).join(''):'') :
 '<div class="grid"><div class="card"><h3>10:00 AM</h3><div class="card">Field 1 • Game 1: Group A Team 1 vs Group A Team 2</div><div class="card">Field 2 • Game 2: Group B Team 1 vs Group B Team 2</div></div><div class="card"><h3>10:50 AM</h3><div class="card">Field 1 • Game 3: Group B Team 1 vs Group B Team 3</div><div class="card">Field 2 • Game 4: Group A Team 1 vs Group A Team 3</div></div><div class="card"><h3>11:40 AM</h3><div class="card">Field 1 • Game 5: Group A Team 1 vs Group A Team 4</div><div class="card">Field 2 • Game 6: Group B Team 1 vs Group B Team 4</div></div><div class="card"><h3>12:30 PM</h3><div class="card">Field 1 • Game 7: Group B Team 2 vs Group B Team 3</div><div class="card">Field 2 • Game 8: Group A Team 2 vs Group A Team 3</div></div><div class="card"><h3>1:20 PM</h3><div class="card">Field 1 • Game 9: Group A Team 2 vs Group A Team 4</div><div class="card">Field 2 • Game 10: Group B Team 2 vs Group B Team 4</div></div><div class="card"><h3>2:10 PM</h3><div class="card">Field 1 • Game 11: Group B Team 3 vs Group B Team 4</div><div class="card">Field 2 • Game 12: Group A Team 3 vs Group A Team 4</div></div></div><div class="card"><h3>🏆 Knockout Stage — Scheduled</h3><p>Semifinal 1: 3:20 PM • Field 1 • Group A #1 vs Group B #2</p><p>Semifinal 2: 4:05 PM • Field 2 • Group B #1 vs Group A #2</p><p>Final: 5:25 PM • Field 1 • Semifinal 1 Winner vs Semifinal 2 Winner</p></div>';
-if($('standingsStatus'))$('standingsStatus').className='notice '+(state.raffleComplete?'completeNotice':'placeholderNotice'),$('standingsStatus').innerHTML=state.raffleComplete?'<b>✅ Official group standings:</b> The in-person team draw is complete and the Group A and Group B assignments are finalized.':'<b>📌 Placeholder standings:</b> The in-person team draw has not been completed yet. Group A and Group B team names shown below are placeholders.';['A','B'].forEach(gr=>{$('s'+gr.toLowerCase()).innerHTML=stats(gr).map((x,i)=>'<tr><td>'+(i+1)+'</td><td><b>'+esc(x.t)+'</b></td><td>'+x.gp+'</td><td>'+x.w+'</td><td>'+x.d+'</td><td>'+x.l+'</td><td>'+x.gf+'</td><td>'+x.ga+'</td><td>'+x.gd+'</td><td><b>'+x.p+'</b></td></tr>').join('')});
+if($('standingsStatus'))$('standingsStatus').className='notice '+(state.raffleComplete?'completeNotice':'placeholderNotice'),$('standingsStatus').innerHTML=state.raffleComplete?'<b>✅ Official group standings:</b> The in-person team draw is complete and the Group A and Group B assignments are finalized.':'<b>📌 Placeholder standings:</b> The in-person team draw has not been completed yet. Group A and Group B team names shown below are placeholders.';window.__renderStandings=function(gr){return stats(gr).map((x,i)=>'<tr><td>'+(i+1)+'</td><td><b>'+esc(x.t)+'</b></td><td>'+x.gp+'</td><td>'+x.w+'</td><td>'+x.d+'</td><td>'+x.l+'</td><td>'+x.gf+'</td><td>'+x.ga+'</td><td>'+x.gd+'</td><td><b>'+x.p+'</b></td></tr>').join('')};['A','B'].forEach(gr=>{$('s'+gr.toLowerCase()).innerHTML=window.__renderStandings(gr)});if(window.__applyPublicTeamNames)window.__applyPublicTeamNames();
 
 let sc={};state.goals.forEach(g=>sc[g.team+'|'+g.player]=(sc[g.team+'|'+g.player]||0)+1);let sr=Object.keys(sc).map(k=>{let p=k.split('|');return{n:p[1],t:p[0],g:sc[k]}}).sort((x,y)=>y.g-x.g||x.n.localeCompare(y.n));$('scorerList').innerHTML=sr.length?'<div class="scroll"><table><tr><th>#</th><th>Player</th><th>Team</th><th>Goals</th></tr>'+sr.map((x,i)=>'<tr><td>'+(i+1)+'</td><td>'+esc(x.n)+'</td><td>'+esc(x.t)+'</td><td><b>'+x.g+'</b></td></tr>').join('')+'</table></div>':'<p class="muted">No goals recorded.</p>';
 let pc={};state.cards.forEach(c=>{let k=c.team+'|'+c.player;if(!pc[k])pc[k]={team:c.team,player:c.player,y:0,r:0};c.type==='yellow'?pc[k].y++:pc[k].r++});$('cardSummary').innerHTML=Object.values(pc).map(x=>'<div class="card"><b>'+esc(x.player)+'</b> — '+esc(x.team)+' <span class="pill">🟨 '+x.y+'</span><span class="pill">🟥 '+x.r+'</span>'+(Math.floor(x.y/2)+x.r?'<div><b>Suspension triggers: '+(Math.floor(x.y/2)+x.r)+'</b></div>':'')+'</div>').join('')||'<p class="muted">No cards recorded.</p>';
@@ -408,5 +409,34 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
   }
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',installTeamNameSync);
   else installTeamNameSync();
+})();
+</script><script>
+(function(){
+  function applyPublicTeamNames(){
+    try{
+      var t=window.__TOURNAMENT_STATE;
+      if(!t || !Array.isArray(t.teams) || t.teams.length!==8)return;
+      var groups={A:[],B:[]};
+      t.teams.forEach(function(x){if(x&&groups[x.group])groups[x.group].push(x)});
+      ['A','B'].forEach(function(g){
+        var panel=document.querySelectorAll('#rosterList .groupPanel')[g==='A'?0:1];
+        if(!panel)return;
+        var rows=panel.querySelectorAll('.teamRow');
+        groups[g].forEach(function(team,i){
+          if(!rows[i])return;
+          var name=rows[i].querySelector('.teamName');
+          var count=rows[i].querySelector('.teamCount');
+          if(name)name.textContent=(i+1)+'. '+(team.name||('Team '+(i+1)));
+          if(count)count.textContent=((team.roster||[]).length)+'/15 players';
+        });
+      });
+      if(typeof window.__renderStandings==='function'){
+        var sa=document.getElementById('sa'),sb=document.getElementById('sb');
+        if(sa)sa.innerHTML=window.__renderStandings('A');
+        if(sb)sb.innerHTML=window.__renderStandings('B');
+      }
+    }catch(e){console.error('Public team-name sync:',e)}
+  }
+  window.__applyPublicTeamNames=applyPublicTeamNames;
 })();
 </script></body></html>
