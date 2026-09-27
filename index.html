@@ -451,22 +451,60 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
           roster.splice(pi,1);await patch({'teams/'+ti+'/roster':roster});return;
         }
         if(add){
-          /* Add Player / Complete / Lock are handled by dedicated controllers.
-             Goal/Card are saved here exactly once from the currently selected game. */
+          /* FINAL AUTHORITATIVE GOAL/CARD SAVE.
+             Use a Firebase transaction so no stale admin state can overwrite
+             a newly recorded goal/card. Verify the saved list before publishing. */
           if(add.id!=='addGoal' && add.id!=='addCard') return;
-          e.preventDefault();
-          e.stopImmediatePropagation();
           const gameSelect=$('activeGameSelect');
           const gi=gameSelect&&gameSelect.value!==''?+gameSelect.value:null;
           if(gi==null||!games[gi])throw Error('Select a scheduled game first.');
-          const goal=add.id==='addGoal',ti=+$(goal?'goalTeam':'cardTeam').value,pi=$(goal?'goalPlayer':'cardPlayer').value;
-          if(Number.isNaN(ti)||pi==='')throw Error('Select a team and player.');
+
+          const goal=add.id==='addGoal';
+          const teamSelect=$(goal?'goalTeam':'cardTeam');
+          const playerSelect=$(goal?'goalPlayer':'cardPlayer');
+          const ti=teamSelect&&teamSelect.value!==''?+teamSelect.value:null;
+          const pi=playerSelect?playerSelect.value:'';
+          if(ti==null||!teams[ti])throw Error('Select a team.');
+          if(pi==='')throw Error('Select a player.');
+
+          const gameTeams=String(games[gi].a||'')+'|'+String(games[gi].b||'');
+          if(gameTeams.split('|').indexOf(String(teams[ti].name))<0)
+            throw Error('The selected team is not part of this scheduled game.');
+
           const roster=arr(teams[ti].roster);
+          const player=pi==='__NO_SCORER__'?'':roster[+pi];
+          if(!goal && !player)throw Error('Select a valid rostered player.');
+          if(goal && pi!=='__NO_SCORER__' && !player)throw Error('Select a valid rostered player.');
+
           const item=goal
-            ?{game:gi,team:teams[ti].name,player:pi==='__NO_SCORER__'?'':roster[+pi],time:$('goalTime').value||'-'}
-            :{game:gi,team:teams[ti].name,player:roster[+pi],type:$('cardType').value,time:$('cardTime').value||'-'};
-          const list=goal?arr(data.goals):arr(data.cards);list.push(item);
-          await patch(goal?{goals:list}:{cards:list});
+            ?{game:gi,team:teams[ti].name,player:player,time:$('goalTime').value||'-'}
+            :{game:gi,team:teams[ti].name,player:player,type:$('cardType').value,time:$('cardTime').value||'-'};
+
+          const listRef=ref().child(goal?'goals':'cards');
+          const tx=await listRef.transaction(function(current){
+            const list=arr(current);
+            list.push(item);
+            return list;
+          });
+          if(!tx.committed)throw Error('Firebase did not commit the '+(goal?'goal':'card')+'.');
+
+          const verifySnap=await listRef.once('value');
+          const verified=arr(verifySnap.val());
+          const found=verified.some(function(x){
+            return Number(x&&x.game)===gi &&
+              String(x&&x.team||'')===String(item.team) &&
+              String(x&&x.player||'')===String(item.player) &&
+              (!goal ? String(x&&x.type||'')===String(item.type) : true) &&
+              String(x&&x.time||'-')===String(item.time||'-');
+          });
+          if(!found)throw Error('Firebase saved the change but verification failed. Please try again.');
+
+          await publish();
+
+          const status=$(goal?'activeGameStatus':'activeGameStatus');
+          if(status)status.textContent=(goal?'✓ Goal saved':'✓ Card saved')+' — '+item.team+(item.player?' • '+item.player:'');
+          alert((goal?'Goal':'Card')+' saved successfully. Public Schedule & Results and '+(goal?'Scorers':'Cards & Suspensions')+' have been updated.');
+        }
         }
       }catch(x){console.error(x);alert(x.message||String(x))}
     },true);
