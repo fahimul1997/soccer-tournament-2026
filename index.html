@@ -3386,3 +3386,67 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
   else bind();
 })();
 </script>
+
+
+<script>
+/* FINAL PUBLIC FIREBASE HYDRATION
+   Guarantees the public site performs an initial Firebase read even if the
+   Firebase SDK finishes loading after DOMContentLoaded. This prevents Scorers
+   and Cards & Suspensions from appearing empty until an admin makes another
+   change. Firebase remains the single source of truth.
+*/
+(function(){
+  var started=false, timer=null;
+
+  async function hydrate(){
+    if(!window.firebase || !firebase.database){
+      timer=setTimeout(hydrate,300);
+      return;
+    }
+    if(started)return;
+    started=true;
+
+    try{
+      var ref=firebase.database().ref('tournament');
+
+      async function apply(snap){
+        var data=snap.val()||{};
+        window.__PUBLIC_TOURNAMENT_DATA=data;
+
+        /* renderPublic2 is exposed through this refresh function and renders
+           Schedule, Teams, Cards & Suspensions, and the other public sections. */
+        if(typeof window.__refreshPublic2==='function'){
+          await window.__refreshPublic2();
+        }
+
+        /* Scorers has its own authoritative Firebase renderer. Run it last so
+           an older renderer cannot replace the saved scorer list on reload. */
+        if(typeof window.__renderAuthoritativeScorers==='function'){
+          window.__renderAuthoritativeScorers(data);
+        }
+
+        if(typeof window.__fixPublicStandings==='function'){
+          window.__fixPublicStandings();
+        }
+      }
+
+      ref.on('value',function(snap){
+        apply(snap).catch(function(e){console.warn('Public Firebase hydration update failed:',e);});
+      });
+
+      var initial=await ref.once('value');
+      await apply(initial);
+    }catch(e){
+      console.error('Public Firebase hydration failed:',e);
+      started=false;
+      timer=setTimeout(hydrate,1000);
+    }
+  }
+
+  if(document.readyState==='loading'){
+    document.addEventListener('DOMContentLoaded',hydrate);
+  }else{
+    hydrate();
+  }
+})();
+</script>
