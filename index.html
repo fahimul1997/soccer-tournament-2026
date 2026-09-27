@@ -1047,3 +1047,45 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
   else bindLast();
 })();
 </script>
+<script>
+/* PUBLIC FALLBACK SYNC
+   Uses Firebase's public REST endpoint in addition to the realtime SDK.
+   This guarantees public browsers receive the shared tournament record even if
+   the realtime WebSocket listener is unavailable. */
+(function(){
+  var timer=null, busy=false, lastJson='';
+  function start(){
+    if(!window.FIREBASE_CONFIG||!window.FIREBASE_CONFIG.databaseURL)return;
+    var url=String(window.FIREBASE_CONFIG.databaseURL).replace(/\/$/,'')+'/tournament.json';
+    async function poll(){
+      if(busy)return;
+      busy=true;
+      try{
+        var r=await fetch(url+'?publicSync='+Date.now(),{cache:'no-store'});
+        if(!r.ok)throw new Error('Firebase public read returned HTTP '+r.status);
+        var data=await r.json();
+        var json=JSON.stringify(data||{});
+        if(json!==lastJson){
+          lastJson=json;
+          window.__PUBLIC_TOURNAMENT_DATA=data||{};
+          if(typeof window.__sharedLiveHandler==='function'){
+            /* Keep the normal renderer as the single display path. */
+            try{window.__sharedLiveHandler({val:function(){return data||{}}});}
+            catch(e){if(typeof renderPublic2==='function')renderPublic2(data||{});}
+          }else if(typeof renderPublic2==='function'){
+            renderPublic2(data||{});
+          }
+          if(typeof window.__fixPublicStandings==='function')window.__fixPublicStandings();
+        }
+      }catch(e){
+        console.warn('Public Firebase REST sync:',e);
+      }finally{busy=false;}
+    }
+    poll();
+    if(timer)clearInterval(timer);
+    timer=setInterval(poll,3000);
+  }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',start);
+  else start();
+})();
+</script>
