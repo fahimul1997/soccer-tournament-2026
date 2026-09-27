@@ -1156,6 +1156,84 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
 })();
 </script>
 <script>
+/* DIRECT PUBLIC TEAMS + SCHEDULE SYNC
+   These two spectator tabs are rendered directly from the latest Firebase snapshot,
+   independently of the older rendering layers. This makes team/player and schedule
+   changes propagate immediately to every public browser/device.
+*/
+(function(){
+  var ref=null, started=false;
+  function arr(v){return Array.isArray(v)?v:Object.values(v||{});}
+  function esc(v){return String(v==null?'':v).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]});}
+  function teamsOf(data){
+    var raw=arr(data&&data.teams), out=[];
+    for(var i=0;i<8;i++){
+      var t=raw[i]||{};
+      out.push({
+        name:String(t.name||('Team '+(i+1))),
+        group:t.group==='B'?'B':'A',
+        roster:arr(t.roster).map(function(p){return typeof p==='string'?p:(p&&p.name?String(p.name):String(p||''))}).filter(Boolean),
+        complete:t.complete===true
+      });
+    }
+    return out;
+  }
+  function gamesOf(data){return arr(data&&data.games);}
+  function renderTeams(data){
+    var el=document.getElementById('rosterList'); if(!el)return;
+    var teams=teamsOf(data);
+    el.innerHTML='<div class="teamsGroups">'+['A','B'].map(function(gr){
+      var list=teams.filter(function(t){return t.group===gr});
+      return '<div class="groupPanel"><div class="groupHead '+(gr==='B'?'b':'')+'"><span>GROUP '+gr+'</span><span>'+list.length+' TEAMS</span></div>'+
+        list.map(function(t,i){
+          return '<div class="teamRow"><div class="teamTop"><span class="teamName">'+(i+1)+'. '+esc(t.name)+'</span><span class="teamMeta"><span class="teamCount">'+t.roster.length+'/15 players</span><span class="statusDot '+(t.complete?'':'incomplete')+'">'+(t.complete?'Complete':'Roster open')+'</span></span></div><div class="teamPlayers">'+
+            (t.roster.length?t.roster.map(function(p){return '<span class="playerChip">'+esc(p)+'</span>'}).join(''):'<span class="muted">No players registered yet.</span>')+
+            '</div></div>';
+        }).join('')+'</div>';
+    }).join('')+'</div>';
+  }
+  function renderSchedule(data){
+    var el=document.getElementById('games'); if(!el)return;
+    var games=gamesOf(data), complete=data&&data.raffleComplete===true||games.length===15;
+    if(!complete){
+      el.innerHTML='<div class="notice placeholderNotice"><b>Schedule not generated yet.</b> Complete the raffle and publish it from Admin Dashboard.</div>';
+      return;
+    }
+    var goals=arr(data&&data.goals);
+    function card(g,i){
+      var stage=String(g.stage||'Game'), knockout=stage!=='Group Stage';
+      var score=(Number(g.sa||0))+' — '+(Number(g.sb||0));
+      var gs=goals.filter(function(x){return Number(x.game)===i;});
+      var scorer=gs.length?'<div class="scorersBox"><b>⚽ Goal Scorers</b><br>'+gs.map(function(x){return '<span><b>'+esc(x.team||'')+':</b> '+esc(x.player||'No scorer')+(x.time&&x.time!=='-'?' '+esc(x.time):'')+'</span>';}).join('<br>')+'</div>':'<div class="scorersBox muted">No goals recorded yet.</div>';
+      return '<div class="card gameCard '+(knockout?'knockout':'')+'"><div><b>'+esc(stage)+'</b> <span class="pill">'+esc(g.field||'')+'</span></div><div class="muted" style="margin-top:4px"><b>Time:</b> '+esc(g.time||'')+'</div><div class="match" style="margin-top:10px"><b>'+esc(g.a||'TBD')+'</b><span class="score">'+score+'</span><b class="right">'+esc(g.b||'TBD')+'</b></div><div class="muted">40-minute game • 5-minute halftime • 5-minute changeover/buffer</div>'+scorer+'</div>';
+    }
+    var group=games.filter(function(g){return g.stage==='Group Stage'}), ko=games.filter(function(g){return g.stage!=='Group Stage'});
+    el.innerHTML=group.map(function(g){return card(g,games.indexOf(g));}).join('')+
+      '<div class="notice"><b>🍽️ Lunch Break:</b> 30 minutes after all 12 group-stage matches. <b>Lunch will be provided.</b></div>'+
+      '<h3 style="margin-top:18px">🏆 Knockout Stage</h3>'+ko.map(function(g){return card(g,games.indexOf(g));}).join('');
+  }
+  function render(data){
+    data=data||{};
+    window.__PUBLIC_TOURNAMENT_DATA=data;
+    renderTeams(data);
+    renderSchedule(data);
+  }
+  function start(){
+    if(started||!window.firebase||!firebase.database)return;
+    started=true;
+    ref=firebase.database().ref('tournament');
+    ref.on('value',function(snap){render(snap.val()||{});});
+    ref.once('value').then(function(snap){render(snap.val()||{});});
+    document.querySelectorAll('.tabs [data-tab="rosters"],.tabs [data-tab="schedule"]').forEach(function(tab){
+      tab.addEventListener('click',function(){
+        ref.once('value').then(function(snap){render(snap.val()||{});}).catch(function(e){console.warn('Direct public tab refresh failed:',e);});
+      },true);
+    });
+  }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',start);else start();
+})();
+</script>
+<script>
 /* PUBLIC FALLBACK SYNC
    Uses Firebase's public REST endpoint in addition to the realtime SDK.
    This guarantees public browsers receive the shared tournament record even if
