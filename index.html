@@ -47,14 +47,13 @@ document.addEventListener('DOMContentLoaded',function(){
         adminButton.disabled=true;
         adminButton.textContent='Checking session…';
         try{
-          if(window.__authPersistenceReady) await window.__authPersistenceReady;
           if(window.firebase&&firebase.auth){
             await new Promise(function(resolve){
               var a=firebase.auth();
-              if(a.currentUser){resolve();return;}
+              if(a.currentUser || window.__authReady){resolve();return;}
               var done=false;
-              var unsub=a.onAuthStateChanged(function(){if(!done){done=true;unsub();resolve();}});
-              setTimeout(function(){if(!done){done=true;try{unsub();}catch(_){ }resolve();}},5000);
+              var unsub=a.onAuthStateChanged(function(){if(!done){done=true;try{unsub();}catch(_){ }resolve();}});
+              setTimeout(function(){if(!done){done=true;try{unsub();}catch(_){ }resolve();}},1200);
             });
           }
         }catch(_){}
@@ -2044,9 +2043,13 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
         try{
           var a=window.firebase&&firebase.auth?firebase.auth():null;
           if(!a)throw Error('Firebase Authentication did not load. Please refresh.');
-          /* Guarantee LOCAL persistence is active before signing in. */
-          if(window.__authPersistenceReady) await window.__authPersistenceReady;
-          else await a.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
+          /* Do not block login on persistence initialization.
+             Firebase Auth already defaults to local browser persistence; the
+             persistence setup runs in the background so a slow iOS storage
+             operation cannot make the login button appear stuck. */
+          if(!window.__authPersistenceReady){
+            try{ a.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(function(){}); }catch(_){}
+          }
           var cred=await a.signInWithEmailAndPassword(email,password);
           window.__adminUserLoggedIn=true;
           if(modal)modal.classList.add('hidden');
