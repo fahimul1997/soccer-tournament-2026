@@ -2738,10 +2738,10 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
 </script>
 
 <script>
-/* FINAL SCORER PICKER V2
-   Always reads the current Firebase roster before building player lists.
-   This avoids stale in-memory state and guarantees Goals/Cards use the
-   same roster saved under /tournament/teams.
+/* FINAL PLAYER DROPDOWN CONTROLLER
+   Authoritative Goal/Card player loader.
+   Reads the selected team's roster directly from Firebase so legacy render
+   handlers cannot leave the player dropdown empty.
 */
 (function(){
   function el(id){return document.getElementById(id);}
@@ -2751,127 +2751,87 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
   }
   function esc(v){
     return String(v==null?'':v).replace(/[&<>"']/g,function(c){
-      return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c];
+      return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'};
     });
   }
-  function teamsOf(d){
-    return arr(d.teams).map(function(t){
-      t=t||{};
-      return {
-        name:String(t.name||''),
-        group:t.group==='B'?'B':'A',
-        roster:arr(t.roster).map(function(p){
-          return typeof p==='string'?p:String(p&&p.name||p||'');
-        }).filter(Boolean)
-      };
-    });
+  async function db(){
+    return (await firebase.database().ref('tournament').once('value')).val()||{};
   }
-  function groupStandings(d,group){
-    var teams=teamsOf(d), rows=teams.filter(function(t){return t.group===group;}).map(function(t){
-      return {t:t.name,gp:0,w:0,d:0,l:0,gf:0,ga:0,p:0};
-    });
-    arr(d.games).filter(function(g){return g&&g.stage==='Group Stage'&&g.played===true;}).forEach(function(g){
-      var x=rows.find(function(r){return r.t===g.a;}), y=rows.find(function(r){return r.t===g.b;});
-      if(!x||!y)return;
-      var a=Number(g.sa)||0,b=Number(g.sb)||0;
-      x.gp++;y.gp++;x.gf+=a;x.ga+=b;y.gf+=b;y.ga+=a;
-      if(a>b){x.w++;y.l++;x.p+=3;}
-      else if(b>a){y.w++;x.l++;y.p+=3;}
-      else{x.d++;y.d++;x.p++;y.p++;}
-    });
-    rows.forEach(function(r){r.gd=r.gf-r.ga;});
-    return rows.sort(function(a,b){return b.p-a.p||b.gd-a.gd||b.gf-a.gf||a.t.localeCompare(b.t);});
+  function rosterNames(team){
+    return arr(team&&team.roster).map(function(p){
+      return typeof p==='string'?p:String(p&&p.name||p||'');
+    }).filter(Boolean);
   }
-  function matchTeams(g,d){
-    if(g.stage==='Semifinal 1'){
-      var a=groupStandings(d,'A'),b=groupStandings(d,'B');
-      return [a[0]?a[0].t:'Group A #1',b[1]?b[1].t:'Group B #2'];
-    }
-    if(g.stage==='Semifinal 2'){
-      var a2=groupStandings(d,'A'),b2=groupStandings(d,'B');
-      return [b2[0]?b2[0].t:'Group B #1',a2[1]?a2[1].t:'Group A #2'];
-    }
-    if(g.stage==='Final'){
-      var sf1=arr(d.games).find(function(x){return x&&x.stage==='Semifinal 1';});
-      var sf2=arr(d.games).find(function(x){return x&&x.stage==='Semifinal 2';});
-      var w1=sf1&&Number(sf1.sa)>Number(sf1.sb)?sf1.a:sf1&&Number(sf1.sb)>Number(sf1.sa)?sf1.b:'Semifinal 1 Winner';
-      var w2=sf2&&Number(sf2.sa)>Number(sf2.sb)?sf2.a:sf2&&Number(sf2.sb)>Number(sf2.sa)?sf2.b:'Semifinal 2 Winner';
-      return [w1,w2];
-    }
-    return [g.a||'TBD',g.b||'TBD'];
-  }
-  async function read(){
-    var snap=await firebase.database().ref('tournament').once('value');
-    return snap.val()||{};
-  }
-  function fillPlayers(teamSel,playerSel,teams,allowNoScorer){
-    var ix=teamSel?teamSel.value:'';
-    var roster=ix!==''&&teams[+ix]?teams[+ix].roster:[];
+  function setPlayers(select, names, noScorer){
+    if(!select)return;
     var html='<option value="">Select player</option>';
-    roster.forEach(function(name,i){
+    names.forEach(function(name,i){
       html+='<option value="'+i+'">'+esc(name)+'</option>';
     });
-    if(allowNoScorer)html+='<option value="__NO_SCORER__">No scorer (forfeit)</option>';
-    if(playerSel)playerSel.innerHTML=html;
+    if(noScorer)html+='<option value="__NO_SCORER__">No scorer (forfeit)</option>';
+    select.innerHTML=html;
+    select.disabled=false;
+    select.removeAttribute('disabled');
+    select.style.pointerEvents='auto';
+    select.style.opacity='1';
+    select.style.color='#132238';
+    select.style.backgroundColor='#fff';
   }
-  async function build(){
-    var sel=el('activeGameSelect');
-    if(!sel||sel.value==='')return;
-    try{
-      var d=await read(), games=arr(d.games), g=games[+sel.value];
-      if(!g)return;
-      var teams=teamsOf(d), names=matchTeams(g,d);
-      function teamOptions(){
-        var html='<option value="">Select team</option>';
-        names.forEach(function(name){
-          var ix=teams.findIndex(function(t){return t.name===name;});
-          if(ix>=0)html+='<option value="'+ix+'">'+esc(name)+'</option>';
-        });
-        return html;
-      }
-      var gt=el('goalTeam'),gp=el('goalPlayer'),ct=el('cardTeam'),cp=el('cardPlayer');
-      if(gt){
-        var old=gt.value;
-        gt.innerHTML=teamOptions();
-        if(old!==''&&Array.from(gt.options).some(function(o){return o.value===old}))gt.value=old;
-        else if(gt.options.length>1)gt.value=gt.options[1].value;
-        fillPlayers(gt,gp,teams,true);
-      }
-      if(ct){
-        var oldc=ct.value;
-        ct.innerHTML=teamOptions();
-        if(oldc!==''&&Array.from(ct.options).some(function(o){return o.value===oldc}))ct.value=oldc;
-        else if(ct.options.length>1)ct.value=ct.options[1].value;
-        fillPlayers(ct,cp,teams,false);
-      }
-      var label='Game '+(+sel.value+1)+' • '+(g.time||'')+' • '+(g.field||'')+' • '+names[0]+' vs '+names[1];
-      if(el('goalGame'))el('goalGame').textContent=label;
-      if(el('cardGame'))el('cardGame').textContent=label;
-    }catch(e){
-      console.error('Scorer picker Firebase sync failed:',e);
+  async function loadPlayers(teamId,playerId,noScorer){
+    var player=el(playerId);
+    if(!player||teamId===''||teamId==null){
+      if(player)player.innerHTML='<option value="">Select player</option>';
+      return;
     }
+    try{
+      var data=await db(),teams=arr(data.teams),team=teams[+teamId];
+      var names=rosterNames(team);
+      setPlayers(player,names,noScorer);
+      if(!names.length){
+        /* Give Firebase a moment in case the roster write/render is still settling. */
+        setTimeout(async function(){
+          try{
+            var snap=await firebase.database().ref('tournament/teams/'+(+teamId)+'/roster').once('value');
+            var fresh=rosterNames({roster:snap.val()});
+            if(fresh.length)setPlayers(player,fresh,noScorer);
+          }catch(e){console.error('Roster retry failed:',e);}
+        },350);
+      }
+    }catch(e){
+      console.error('Player dropdown load failed:',e);
+      player.innerHTML='<option value="">Unable to load players</option>';
+    }
+  }
+  function bindTeam(teamId,playerId,noScorer,flag){
+    var team=el(teamId);
+    if(!team||team.dataset[flag]==='1')return;
+    team.dataset[flag]='1';
+    team.addEventListener('change',function(){
+      loadPlayers(team.value,playerId,noScorer);
+    },true);
+  }
+  async function refreshBoth(){
+    var gt=el('goalTeam'),ct=el('cardTeam');
+    if(gt)await loadPlayers(gt.value,'goalPlayer',true);
+    if(ct)await loadPlayers(ct.value,'cardPlayer',false);
   }
   function bind(){
-    var sel=el('activeGameSelect');
-    if(!sel){setTimeout(bind,400);return;}
-    if(sel.dataset.scorerControllerV2!=='1'){
-      sel.dataset.scorerControllerV2='1';
-      sel.addEventListener('change',function(){setTimeout(build,50);});
+    var game=el('activeGameSelect');
+    if(!game){
+      setTimeout(bind,400);
+      return;
     }
-    var gt=el('goalTeam'),ct=el('cardTeam');
-    if(gt&&!gt.dataset.scorerTeamBoundV2){
-      gt.dataset.scorerTeamBoundV2='1';
-      gt.addEventListener('change',function(){
-        read().then(function(d){fillPlayers(gt,el('goalPlayer'),teamsOf(d),true);});
-      });
+    bindTeam('goalTeam','goalPlayer',true,'authoritativeGoalPlayerBound');
+    bindTeam('cardTeam','cardPlayer',false,'authoritativeCardPlayerBound');
+
+    if(game.dataset.authoritativePlayerGameBound!=='1'){
+      game.dataset.authoritativePlayerGameBound='1';
+      game.addEventListener('change',function(){
+        setTimeout(refreshBoth,80);
+        setTimeout(refreshBoth,400);
+      },true);
     }
-    if(ct&&!ct.dataset.cardTeamBoundV2){
-      ct.dataset.cardTeamBoundV2='1';
-      ct.addEventListener('change',function(){
-        read().then(function(d){fillPlayers(ct,el('cardPlayer'),teamsOf(d),false);});
-      });
-    }
-    if(sel.value!=='')build();
+    refreshBoth();
   }
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',bind);
   else bind();
