@@ -1012,6 +1012,72 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',bind);else bind();
 })();
 </script>
+<script>
+/* FINAL EVENT DATA PERSISTENCE GUARD
+   Goals and cards are permanent Firebase records. Dedicated listeners keep the
+   latest event data visible after refresh/reopen and prevent stale public renders
+   from replacing the newest saved goals/cards.
+*/
+(function(){
+  var goalRef,cardRef;
+  var goalData=null,cardData=null;
+
+  function arr(v){
+    return Array.isArray(v)?v:Object.keys(v||{}).sort(function(a,b){
+      return String(a).localeCompare(String(b));
+    }).map(function(k){return v[k];});
+  }
+
+  function mergeAndRender(){
+    if(!window.firebase||!firebase.database)return;
+    firebase.database().ref('tournament').once('value').then(function(snap){
+      var data=snap.val()||{};
+      /* The Firebase event collections are authoritative. */
+      data.goals=goalData!==null?goalData:data.goals;
+      data.cards=cardData!==null?cardData:data.cards;
+      window.__LATEST_EVENT_DATA={
+        goals:arr(data.goals),
+        cards:arr(data.cards)
+      };
+      window.__PUBLIC_TOURNAMENT_DATA=data;
+      if(typeof window.__refreshPublic2==='function'){
+        try{window.__refreshPublic2();}catch(e){}
+      }
+      if(typeof renderAll==='function')renderAll(data);
+    }).catch(function(e){console.warn('Event data refresh failed:',e);});
+  }
+
+  function bind(){
+    if(!window.firebase||!firebase.database){
+      setTimeout(bind,500);
+      return;
+    }
+    goalRef=firebase.database().ref('tournament/goals');
+    cardRef=firebase.database().ref('tournament/cards');
+
+    goalRef.on('value',function(snap){
+      goalData=snap.val()||{};
+      mergeAndRender();
+    });
+    cardRef.on('value',function(snap){
+      cardData=snap.val()||{};
+      mergeAndRender();
+    });
+
+    /* Fresh read whenever the user returns to the public tabs. */
+    document.querySelectorAll('.tabs [data-tab="schedule"],.tabs [data-tab="scorers"],.tabs [data-tab="cards"]').forEach(function(tab){
+      tab.addEventListener('click',function(){
+        setTimeout(mergeAndRender,0);
+      },true);
+    });
+
+    mergeAndRender();
+  }
+
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',bind);
+  else bind();
+})();
+</script>
 </html><script>
 /* Live admin preview: typing team names or changing Group A/B immediately updates the public tabs in this browser.
    Firebase is still only changed when the admin presses SAVE RAFFLE RESULTS & GENERATE SCHEDULE or SAVE TEAM NAME CHANGES. */
