@@ -439,4 +439,72 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
   }
   window.__applyPublicTeamNames=applyPublicTeamNames;
 })();
+</script><script>
+/* Definitive public-view refresh after team-name changes. */
+(function(){
+  var btn=document.getElementById('saveTeamNames');
+  if(!btn || !window.firebase)return;
+  btn.onclick=async function(e){
+    e.preventDefault(); e.stopImmediatePropagation();
+    if(btn.disabled)return;
+    var currentUser=firebase.auth&&firebase.auth().currentUser;
+    if(!currentUser){alert('Admin login required. Please log in again.');return;}
+    var inputs=document.querySelectorAll('#teamEditor [data-name]');
+    if(inputs.length!==8){alert('The 8 team fields are not loaded. Please refresh the page.');return;}
+    var names=Array.from(inputs).map(function(x,i){return (x.value||'').trim()||('Team '+(i+1))});
+    var seen={};
+    for(var i=0;i<names.length;i++){
+      var key=names[i].toLowerCase();
+      if(seen[key]){alert('Team names must be unique. "'+names[i]+'" is repeated.');return;}
+      seen[key]=true;
+    }
+    btn.disabled=true; btn.textContent='SAVING...';
+    try{
+      var ref=firebase.database().ref('tournament');
+      var snap=await ref.once('value');
+      var data=snap.val()||{};
+      var teams=Array.isArray(data.teams)?data.teams:Object.values(data.teams||{});
+      var games=Array.isArray(data.games)?data.games:Object.values(data.games||{});
+      var goals=Array.isArray(data.goals)?data.goals:Object.values(data.goals||{});
+      var cards=Array.isArray(data.cards)?data.cards:Object.values(data.cards||{});
+      if(teams.length!==8)throw new Error('The saved tournament does not contain all 8 teams.');
+      var old=teams.map(function(t,i){return String(t&&t.name||('Team '+(i+1)))});
+      var rename={};
+      teams=teams.map(function(t,i){
+        var n=Object.assign({},t); rename[old[i]]=names[i]; n.name=names[i]; return n;
+      });
+      games=games.map(function(g){
+        var n=Object.assign({},g);
+        if(rename[n.a])n.a=rename[n.a];
+        if(rename[n.b])n.b=rename[n.b];
+        return n;
+      });
+      goals=goals.map(function(g){var n=Object.assign({},g);if(rename[n.team])n.team=rename[n.team];return n});
+      cards=cards.map(function(g){var n=Object.assign({},g);if(rename[n.team])n.team=rename[n.team];return n});
+      data.teams=teams; data.games=games; data.goals=goals; data.cards=cards;
+      await ref.set(data);
+
+      /* Update the live page from the exact object that was just written. */
+      state=data;
+      window.__TOURNAMENT_STATE=data;
+      if(typeof render==='function')render();
+      if(typeof adminRender==='function')adminRender();
+
+      /* Verify Firebase contains the new names before declaring success. */
+      var verify=(await ref.once('value')).val()||{};
+      var verifyTeams=Array.isArray(verify.teams)?verify.teams:Object.values(verify.teams||{});
+      var ok=verifyTeams.length===8 && verifyTeams.every(function(t,i){return String(t.name||'')===names[i]});
+      if(!ok)throw new Error('Firebase verification failed. The new team names were not confirmed after saving.');
+
+      if(typeof window.__refreshTournamentUI==='function')await window.__refreshTournamentUI();
+      showTournamentTab('schedule');
+      alert('SUCCESS: Team names were saved and verified. Group A, Group B, Schedule, Standings, Scorers, Cards, and Admin have been refreshed.');
+    }catch(err){
+      console.error('Definitive team-name save failed:',err);
+      alert('SAVE FAILED: '+(err&&err.message?err.message:'Could not save and verify team names.'));
+    }finally{
+      btn.disabled=false; btn.textContent='SAVE TEAM NAME CHANGES';
+    }
+  };
+})();
 </script></body></html>
