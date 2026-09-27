@@ -960,7 +960,59 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',start);else start();
 })();
 </script>
-</body></html><script>
+</body>
+<script>
+/* AUTHORITATIVE SCORERS DISPLAY
+   The Scorers tab always reads the latest Firebase goals directly. This is
+   deliberately last so older render layers cannot replace it with stale data.
+*/
+(function(){
+  function arr(v){return Array.isArray(v)?v:Object.keys(v||{}).sort(function(a,b){return String(a).localeCompare(String(b));}).map(function(k){return v[k];});}
+  function esc(v){return String(v==null?'':v).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c];});}
+  function render(data){
+    data=data||{};
+    var el=document.getElementById('scorerList');
+    if(!el)return;
+    var goals=arr(data.goals).filter(function(g){return g&&String(g.player||'').trim();});
+    var totals={};
+    goals.forEach(function(g){
+      var team=String(g.team||'').trim()||'Unknown Team';
+      var player=String(g.player||'').trim();
+      var key=team+'|'+player;
+      totals[key]=(totals[key]||0)+1;
+    });
+    var teams={};
+    Object.keys(totals).forEach(function(key){
+      var p=key.split('|'),team=p[0],player=p.slice(1).join('|');
+      if(!teams[team])teams[team]=[];
+      teams[team].push({player:player,goals:totals[key]});
+    });
+    var html=Object.keys(teams).sort().map(function(team){
+      teams[team].sort(function(a,b){return b.goals-a.goals||a.player.localeCompare(b.player);});
+      return '<div class="card" style="padding:12px 16px;margin-bottom:8px">'+
+        '<b>'+esc(team)+'</b><div style="margin-top:6px">'+
+        teams[team].map(function(x){
+          return '<div style="display:flex;justify-content:space-between;gap:12px;padding:4px 0">'+
+            '<span>'+esc(x.player)+'</span><b>'+x.goals+'</b></div>';
+        }).join('')+'</div></div>';
+    }).join('');
+    el.innerHTML=html||'<p class="muted">No goals recorded.</p>';
+  }
+  function bind(){
+    if(!window.firebase||!firebase.database){setTimeout(bind,500);return;}
+    var ref=firebase.database().ref('tournament');
+    ref.on('value',function(snap){render(snap.val()||{});});
+    document.querySelectorAll('.tabs [data-tab="scorers"]').forEach(function(tab){
+      tab.addEventListener('click',function(){
+        setTimeout(function(){ref.once('value').then(function(s){render(s.val()||{});});},0);
+      },true);
+    });
+    ref.once('value').then(function(s){render(s.val()||{});});
+  }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',bind);else bind();
+})();
+</script>
+</html><script>
 /* Live admin preview: typing team names or changing Group A/B immediately updates the public tabs in this browser.
    Firebase is still only changed when the admin presses SAVE RAFFLE RESULTS & GENERATE SCHEDULE or SAVE TEAM NAME CHANGES. */
 (function(){
@@ -1010,8 +1062,8 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
       games.push({field:'Field 1',stage:'Final',date:'',time:'5:25 PM',a:'Semifinal 1 Winner',b:'Semifinal 2 Winner',sa:0,sb:0});
       state={
         teams:teams,games:games,
-        goals:Array.isArray(oldState.goals)?oldState.goals:[],
-        cards:Array.isArray(oldState.cards)?oldState.cards:[],
+        goals:Array.isArray(oldState.goals)?oldState.goals:Object.values(oldState.goals||{}),
+        cards:Array.isArray(oldState.cards)?oldState.cards:Object.values(oldState.cards||{}),
         locked:!!oldState.locked,
         raffleComplete:true
       };
@@ -1307,8 +1359,8 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
       var newData={
         teams:teams,
         games:games,
-        goals:arr2(old.goals),
-        cards:arr2(old.cards),
+        goals:old.goals||{},
+        cards:old.cards||{},
         locked:!!old.locked,
         raffleComplete:true
       };
