@@ -1101,6 +1101,70 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
 })();
 </script>
 <script>
+/* AUTHORITATIVE NAME + ROSTER ALIGNMENT
+   Firebase /tournament is the only source for team names, groups and rosters.
+   Every admin/public view is rehydrated from that same record.
+*/
+(function(){
+  var live=null, last='';
+  function arr(v){return Array.isArray(v)?v:Object.values(v||{});}
+  function clean(data){
+    data=data||{};
+    var teams=arr(data.teams).slice(0,8).map(function(t,i){
+      return {
+        name:String(t&&t.name||('Team '+(i+1))),
+        group:t&&t.group==='B'?'B':'A',
+        roster:arr(t&&t.roster).map(function(p){
+          return typeof p==='string'?p:(p&&p.name?String(p.name):String(p||''));
+        }).filter(Boolean),
+        complete:t&&t.complete===true
+      };
+    });
+    while(teams.length<8)teams.push({name:'Team '+(teams.length+1),group:teams.length<4?'A':'B',roster:[],complete:false});
+    return Object.assign({},data,{teams:teams,goals:arr(data.goals),cards:arr(data.cards),games:arr(data.games)});
+  }
+  function alignAdmin(data){
+    var d=clean(data);
+    window.__AUTHORITATIVE_TOURNAMENT=d;
+    window.__PUBLIC_TOURNAMENT_DATA=d;
+
+    /* Rehydrate the admin team-name/group fields from Firebase. */
+    d.teams.forEach(function(t,i){
+      var n=document.querySelector('#teamEditor [data-name="'+i+'"]');
+      var g=document.querySelector('#teamEditor [data-group="'+i+'"]');
+      if(n)n.value=t.name;
+      if(g)g.value=t.group;
+    });
+
+    /* Re-render admin roster/player controls from the same Firebase snapshot. */
+    if(window.__adminUserLoggedIn && typeof adminRender==='function'){
+      try{ adminRender(); }catch(e){ console.warn('Admin alignment render:',e); }
+    }
+
+    /* Re-render every public section from exactly the same snapshot. */
+    if(typeof renderAll==='function'){
+      try{ renderAll(d); }catch(e){ console.warn('Public alignment render:',e); }
+    }else if(typeof renderPublic2==='function'){
+      try{ renderPublic2(d); }catch(e){ console.warn('Public alignment render:',e); }
+    }
+  }
+  function start(){
+    if(live||!window.firebase||!firebase.database)return;
+    live=firebase.database().ref('tournament');
+    live.on('value',function(snap){
+      var d=clean(snap.val()||{});
+      var j=JSON.stringify(d);
+      if(j===last)return;
+      last=j;
+      alignAdmin(d);
+    });
+    live.once('value').then(function(s){alignAdmin(s.val()||{});});
+  }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',start);
+  else start();
+})();
+</script>
+<script>
 /* PUBLIC FALLBACK SYNC
    Uses Firebase's public REST endpoint in addition to the realtime SDK.
    This guarantees public browsers receive the shared tournament record even if
