@@ -779,6 +779,88 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',start);else start();
 })();
 </script>
+<script>
+/* FINAL ADD PLAYERS ACTION
+   Clicking Add Players writes the selected team's roster to Firebase and immediately
+   redraws both Admin and public team/player lists from the saved snapshot. */
+(function(){
+  function arr(v){return Array.isArray(v)?v:Object.values(v||{});}
+  function esc(v){return String(v==null?'':v).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c];});}
+  async function addPlayersFinal(e){
+    if(e){e.preventDefault();e.stopImmediatePropagation();}
+    var btn=document.getElementById('addPlayer'), sel=document.getElementById('rt'), input=document.getElementById('player');
+    if(!btn||!sel||!input)return;
+    if(!window.firebase||!firebase.database||!firebase.auth||!firebase.auth().currentUser){alert('Admin login required.');return;}
+    var idx=sel.value, raw=(input.value||'').trim();
+    if(idx===''){alert('Please select a team first.');return;}
+    if(!raw){alert('Enter one or more player names.');return;}
+    var names=raw.split(/[,
+]+/).map(function(x){return x.trim();}).filter(Boolean);
+    if(!names.length)return;
+    btn.disabled=true; var old=btn.textContent; btn.textContent='SAVING…';
+    try{
+      var ref=firebase.database().ref('tournament');
+      var snap=await ref.once('value'), d=snap.val()||{}, teams=arr(d.teams);
+      var team=teams[+idx];
+      if(!team)throw Error('Selected team was not found.');
+      if(d.locked===true)throw Error('Group Stage is locked. No new players can be added.');
+      if(team.complete===true)throw Error('This roster is marked complete. Toggle Complete to reopen it.');
+      var roster=arr(team.roster).map(function(p){return typeof p==='string'?p:String(p&&p.name||p);});
+      var fresh=[];
+      names.forEach(function(n){
+        if(roster.some(function(p){return p.toLowerCase()===n.toLowerCase();}))return;
+        if(roster.length+fresh.length<15)fresh.push(n);
+      });
+      if(!fresh.length){
+        if(roster.length>=15)throw Error('This team already has 15 players.');
+        throw Error('Those players are already on this roster.');
+      }
+      if(roster.length+fresh.length>15)throw Error('A team can have a maximum of 15 players.');
+      roster=roster.concat(fresh);
+      await ref.update({'teams/'+(+idx)+'/roster':roster});
+      input.value='';
+      var latest=(await ref.once('value')).val()||{};
+      /* Immediately render the selected team's saved roster in the Admin panel. */
+      var box=document.getElementById('adminRosters'), latestTeams=arr(latest.teams);
+      if(box){
+        box.innerHTML=latestTeams.slice(0,8).map(function(t,i){
+          var rr=arr(t&&t.roster);
+          return '<div class="card" style="margin-top:10px"><b>'+esc(t&&t.name||('Team '+(i+1)))+'</b> — '+rr.length+'/15 '+
+            (t&&t.complete?'<span class="statusDot">Complete</span>':'<span class="statusDot incomplete">Open</span>')+
+            '<div class="teamPlayers" style="margin-top:8px">'+
+            (rr.length?rr.map(function(p){return '<span class="pill">'+esc(typeof p==='string'?p:(p&&p.name||p))+'</span>';}).join(''):'<span class="muted">No players registered yet.</span>')+
+            '</div></div>';
+        }).join('');
+      }
+      /* Also refresh the public Teams & Players tab immediately. */
+      var pub=document.getElementById('rosterList');
+      if(pub){
+        pub.innerHTML=['A','B'].map(function(g){
+          var gt=latestTeams.filter(function(t){return t&&t.group===g;});
+          return '<div class="card" style="margin-top:12px"><h3>Group '+g+'</h3>'+
+            gt.map(function(t){
+              var rr=arr(t.roster);
+              return '<div style="margin:10px 0;padding:10px;border:1px solid #d9dee5;border-radius:10px"><div style="font-weight:800">'+esc(t.name)+' <span class="pill">'+rr.length+'/15</span></div><div class="teamPlayers" style="margin-top:7px">'+
+                (rr.length?rr.map(function(p){return '<span class="pill">'+esc(typeof p==='string'?p:(p&&p.name||p))+'</span>';}).join(''):'<span class="muted">No players registered yet.</span>')+
+                '</div></div>';
+            }).join('')+'</div>';
+        }).join('');
+      }
+      alert(fresh.length+' player'+(fresh.length===1?'':'s')+' added to '+String(team.name||('Team '+(+idx+1)))+'.');
+    }catch(err){
+      console.error(err); alert(err.message||String(err));
+    }finally{
+      btn.disabled=false; btn.textContent=old||'Add Players';
+    }
+  }
+  function bind(){
+    var b=document.getElementById('addPlayer');
+    if(!b){setTimeout(bind,500);return;}
+    b.onclick=addPlayersFinal;
+  }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',bind);else bind();
+})();
+</script>
 </body></html><script>
 /* Live admin preview: typing team names or changing Group A/B immediately updates the public tabs in this browser.
    Firebase is still only changed when the admin presses SAVE RAFFLE RESULTS & GENERATE SCHEDULE or SAVE TEAM NAME CHANGES. */
