@@ -3508,12 +3508,14 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
       var team=String(g.team||'').trim()||'Unknown Team';
       var player=String(g.player||'').trim();
       var key=team+'|'+player;
-      if(!totals[key])totals[key]={team:team,player:player,times:[]};
+      if(!totals[key])totals[key]={team:team,player:player,count:0,times:[]};
+      /* Every saved goal record counts as one goal, even when its time is "-". */
+      totals[key].count++;
       if(g.time&&String(g.time)!=='-')totals[key].times.push(String(g.time).trim());
     });
     var rows=Object.keys(totals).map(function(k){return totals[k];});
     rows.sort(function(a,b){
-      return b.times.length-a.times.length||a.team.localeCompare(b.team)||a.player.localeCompare(b.player);
+      return b.count-a.count||a.team.localeCompare(b.team)||a.player.localeCompare(b.player);
     });
     if(!rows.length){
       el.innerHTML='<p class="muted">No goals recorded.</p>';
@@ -3525,7 +3527,7 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
       return '<div class="card" style="padding:12px 16px;margin-bottom:8px">'+
         '<b>'+esc(team)+'</b><div style="margin-top:6px">'+
         byTeam[team].map(function(x){
-          var count=x.times.length;
+          var count=x.count;
           var timeText=x.times.length?' <span class="muted">('+x.times.map(function(t){return esc(t+(t.slice(-1)==="'"?'':"'"));}).join(', ')+')</span>':'';
           return '<div style="display:flex;justify-content:space-between;gap:12px;padding:4px 0">'+
             '<span>'+esc(x.player)+timeText+'</span><b>'+count+'</b></div>';
