@@ -1563,3 +1563,103 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
 })();
 </script>
 
+
+
+<script>
+/* FINAL ROSTER TEAM SELECT FIX
+   Keeps the Admin roster team selector populated directly from Firebase.
+   This is intentionally independent of the older admin renderer layers.
+*/
+(function(){
+  var timer=null, started=false;
+
+  function arr(v){
+    return Array.isArray(v) ? v : Object.values(v||{});
+  }
+  function esc(v){
+    return String(v==null?'':v).replace(/[&<>"']/g,function(c){
+      return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'};
+    });
+  }
+  function populate(data){
+    var sel=document.getElementById('rt');
+    if(!sel)return;
+
+    var teams=arr(data&&data.teams);
+    var current=sel.value;
+    var html='<option value="">Select team</option>';
+
+    for(var i=0;i<8;i++){
+      var t=teams[i]||{};
+      var name=String(t.name||('Team '+(i+1)));
+      var group=t.group==='B'?'B':'A';
+      html+='<option value="'+i+'">'+esc(name)+' (Group '+group+')</option>';
+    }
+
+    sel.innerHTML=html;
+    if(current!=='' && Number(current)>=0 && Number(current)<8){
+      sel.value=current;
+    }
+
+    /* iOS/Safari can make an empty/disabled-looking native select appear
+       grey. Explicitly keep this control enabled and interactive. */
+    sel.disabled=false;
+    sel.removeAttribute('disabled');
+    sel.style.pointerEvents='auto';
+    sel.style.opacity='1';
+    sel.style.color='#132238';
+    sel.style.backgroundColor='#fff';
+    sel.style.webkitAppearance='menulist';
+  }
+
+  async function refresh(){
+    if(!window.firebase || !firebase.database || !window.FIREBASE_CONFIG)return;
+    try{
+      var ref=firebase.database().ref('tournament');
+      var snap=await ref.once('value');
+      populate(snap.val()||{});
+    }catch(e){
+      console.warn('Roster team selector refresh failed:',e);
+    }
+  }
+
+  function start(){
+    if(started)return;
+    started=true;
+
+    if(!window.firebase || !firebase.database){
+      setTimeout(start,500);
+      return;
+    }
+
+    try{
+      var ref=firebase.database().ref('tournament');
+      ref.on('value',function(snap){
+        populate(snap.val()||{});
+      });
+      refresh();
+
+      /* If an older renderer ever replaces the select with an empty control,
+         restore the team options automatically without touching tournament data. */
+      if(timer)clearInterval(timer);
+      timer=setInterval(function(){
+        var sel=document.getElementById('rt');
+        if(sel && sel.options.length<9)refresh();
+        if(sel){
+          sel.disabled=false;
+          sel.style.pointerEvents='auto';
+          sel.style.opacity='1';
+        }
+      },1000);
+    }catch(e){
+      console.warn('Roster selector setup failed:',e);
+    }
+  }
+
+  if(document.readyState==='loading'){
+    document.addEventListener('DOMContentLoaded',start);
+  }else{
+    start();
+  }
+})();
+</script>
