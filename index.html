@@ -3453,18 +3453,17 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
 
 
 <script>
-/* FINAL DIRECT SCORERS + CARDS RENDERER
-   These two public tabs read their Firebase collections directly. This is the
-   last display layer on the page, so legacy renderers cannot blank them after
-   the saved data has been loaded.
+/* FINAL DIRECT LIVE SCORERS + CARDS RENDERER
+   Public source of truth:
+   Firebase Realtime Database -> /tournament, /tournament/goals, /tournament/cards.
+   This renderer is intentionally independent of admin authentication.
 */
 (function(){
-  var started=false;
+  var started=false, busy=false;
 
   function arr(v){
-    return Array.isArray(v)?v:Object.keys(v||{}).sort(function(a,b){
-      return String(a).localeCompare(String(b));
-    }).map(function(k){return v[k];});
+    if(Array.isArray(v))return v;
+    return Object.keys(v||{}).map(function(k){return v[k];});
   }
   function esc(v){
     return String(v==null?'':v).replace(/[&<>"']/g,function(c){
@@ -3472,67 +3471,86 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
     });
   }
 
-  async function readAll(){
-    /* Use Firebase's public REST API for these two public tabs. This avoids
-       any timing/race issue with the Firebase SDK and guarantees the public
-       page can read the saved records immediately after a reload. */
-    var base=window.FIREBASE_CONFIG&&window.FIREBASE_CONFIG.databaseURL;
-    if(!base)return null;
-    base=String(base).replace(/\\/$/,'');
-    var root=await fetch(base+'/tournament.json',{cache:'no-store'});
-    if(!root.ok)throw new Error('Firebase tournament read failed: HTTP '+root.status);
-    var data=await root.json()||{};
+  function databaseUrl(){
+    var cfg=window.FIREBASE_CONFIG||{};
+    return String(cfg.databaseURL||'').replace(/\\/$/,'');
+  }
 
-    var gr=await fetch(base+'/tournament/goals.json',{cache:'no-store'});
-    if(gr.ok){
-      var gv=await gr.json();
-      if(gv!==null)data.goals=gv;
-    }
+  async function getJson(path){
+    var url=databaseUrl()+path+'.json?cacheBust='+Date.now();
+    if(!databaseUrl())throw new Error('Firebase database URL is not configured.');
+    var res=await fetch(url,{method:'GET',cache:'no-store',headers:{'Accept':'application/json'}});
+    if(!res.ok)throw new Error('Firebase returned HTTP '+res.status+' for '+path);
+    return await res.json();
+  }
 
-    var cr=await fetch(base+'/tournament/cards.json',{cache:'no-store'});
-    if(cr.ok){
-      var cv=await cr.json();
-      if(cv!==null)data.cards=cv;
-    }
+  async function readLive(){
+    /* Read the complete public tournament snapshot first. */
+    var data=await getJson('/tournament')||{};
+
+    /* Goal/card events are authoritative child collections. If they are
+       already present in the root snapshot, keep them. Otherwise fetch them
+       directly so public users always see the saved event records. */
+    if(data.goals==null)data.goals=await getJson('/tournament/goals');
+    if(data.cards==null)data.cards=await getJson('/tournament/cards');
+
     return data;
+  }
+
+  function showState(id,html){
+    var el=document.getElementById(id);
+    if(el)el.innerHTML=html;
   }
 
   function renderScorers(data){
     var el=document.getElementById('scorerList');
     if(!el)return;
+
     var goals=arr(data&&data.goals).filter(function(g){
       return g&&String(g.player||'').trim()&&String(g.player||'')!=='__NO_SCORER__';
     });
+
     var totals={};
     goals.forEach(function(g){
       var team=String(g.team||'').trim()||'Unknown Team';
       var player=String(g.player||'').trim();
       var key=team+'|'+player;
       if(!totals[key])totals[key]={team:team,player:player,count:0,times:[]};
-      /* Every saved goal record counts as one goal, even when its time is "-". */
       totals[key].count++;
-      if(g.time&&String(g.time)!=='-')totals[key].times.push(String(g.time).trim());
+      var t=String(g.time==null?'':g.time).trim();
+      if(t&&t!=='-')totals[key].times.push(t);
     });
+
     var rows=Object.keys(totals).map(function(k){return totals[k];});
     rows.sort(function(a,b){
       return b.count-a.count||a.team.localeCompare(b.team)||a.player.localeCompare(b.player);
     });
+
     if(!rows.length){
-      el.innerHTML='<p class="muted">No goals recorded.</p>';
+      el.innerHTML='<div class="card" style="padding:16px"><p class="muted">No goals have been recorded yet.</p><small class="muted">Live Firebase data is connected.</small></div>';
       return;
     }
+
     var byTeam={};
-    rows.forEach(function(x){if(!byTeam[x.team])byTeam[x.team]=[];byTeam[x.team].push(x);});
-    el.innerHTML=Object.keys(byTeam).sort().map(function(team){
-      return '<div class="card" style="padding:12px 16px;margin-bottom:8px">'+
-        '<b>'+esc(team)+'</b><div style="margin-top:6px">'+
-        byTeam[team].map(function(x){
-          var count=x.count;
-          var timeText=x.times.length?' <span class="muted">('+x.times.map(function(t){return esc(t+(t.slice(-1)==="'"?'':"'"));}).join(', ')+')</span>':'';
-          return '<div style="display:flex;justify-content:space-between;gap:12px;padding:4px 0">'+
-            '<span>'+esc(x.player)+timeText+'</span><b>'+count+'</b></div>';
-        }).join('')+'</div></div>';
-    }).join('');
+    rows.forEach(function(x){
+      if(!byTeam[x.team])byTeam[x.team]=[];
+      byTeam[x.team].push(x);
+    });
+
+    el.innerHTML=
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">'+
+      '<b>Live Goal Scorers</b><span class="pill">LIVE</span></div>'+
+      Object.keys(byTeam).sort().map(function(team){
+        return '<div class="card" style="padding:12px 16px;margin-bottom:8px">'+
+          '<b>'+esc(team)+'</b><div style="margin-top:6px">'+
+          byTeam[team].map(function(x){
+            var timeText=x.times.length?' <span class="muted">('+x.times.map(function(t){
+              return esc(t+(t.slice(-1)==="'"?'':"'"));
+            }).join(', ')+')</span>':'';
+            return '<div style="display:flex;justify-content:space-between;gap:12px;padding:5px 0">'+
+              '<span>'+esc(x.player)+timeText+'</span><b>'+x.count+'</b></div>';
+          }).join('')+'</div></div>';
+      }).join('');
   }
 
   function renderCards(data){
@@ -3545,7 +3563,6 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
     cards.forEach(function(c){
       if(!c||!String(c.player||'').trim())return;
       var g=games[Number(c.game)];
-      /* Suspension totals count group-stage cards only. */
       if(!g||g.stage!=='Group Stage')return;
       var team=String(c.team||'').trim();
       var player=String(c.player||'').trim();
@@ -3557,7 +3574,7 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
 
     if(summary){
       var rows=Object.keys(map).sort().map(function(k){
-        var x=map[k], susp=Math.floor(x.y/2)+x.r;
+        var x=map[k],susp=Math.floor(x.y/2)+x.r;
         return '<div class="card" style="padding:10px 14px;margin-bottom:7px">'+
           '<div style="display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap">'+
           '<div><b>'+esc(x.player)+'</b><div class="muted">'+esc(x.team)+'</div></div>'+
@@ -3570,55 +3587,60 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
     }
 
     if(history){
-      if(!cards.length){
-        history.innerHTML='<p class="muted">No cards recorded.</p>';
-      }else{
-        history.innerHTML='<div class="scroll"><table><tr><th>Game</th><th>Team</th><th>Player</th><th>Stage</th><th>Card</th><th>Time</th></tr>'+
-          cards.map(function(c){
-            var g=games[Number(c.game)];
-            return '<tr><td>Game '+(Number(c.game)+1)+'</td><td>'+esc(c.team||'')+'</td><td>'+esc(c.player||'')+'</td><td>'+esc(g&&g.stage||'Unknown')+'</td><td>'+
-              (String(c.type||'').toLowerCase()==='red'?'🟥 Red':'🟨 Yellow')+'</td><td>'+esc(c.time||'-')+'</td></tr>';
-          }).join('')+'</table></div>';
-      }
+      if(!cards.length)history.innerHTML='<p class="muted">No cards recorded.</p>';
+      else history.innerHTML='<div class="scroll"><table><tr><th>Game</th><th>Team</th><th>Player</th><th>Stage</th><th>Card</th><th>Time</th></tr>'+
+        cards.map(function(c){
+          var g=games[Number(c.game)];
+          return '<tr><td>Game '+(Number(c.game)+1)+'</td><td>'+esc(c.team||'')+'</td><td>'+esc(c.player||'')+'</td><td>'+esc(g&&g.stage||'Unknown')+'</td><td>'+
+          (String(c.type||'').toLowerCase()==='red'?'🟥 Red':'🟨 Yellow')+'</td><td>'+esc(c.time||'-')+'</td></tr>';
+        }).join('')+'</table></div>';
     }
   }
 
-  async function apply(){
+  function showLiveError(err){
+    var msg=esc(err&&err.message?err.message:err);
+    showState('scorerList',
+      '<div class="card" style="padding:16px;border:1px solid #d33">'+
+      '<b>Live scorer data is temporarily unavailable.</b>'+
+      '<p class="muted" style="margin:6px 0 0">The public page could not read the tournament database. Please check the Firebase public read rules.</p>'+
+      '<small class="muted">'+msg+'</small></div>');
+    showState('cardSummary',
+      '<div class="card" style="padding:16px;border:1px solid #d33"><b>Live card data is temporarily unavailable.</b><p class="muted">Please check the Firebase public read rules.</p></div>');
+    showState('cardHistory','');
+  }
+
+  async function refresh(){
+    if(busy)return;
+    busy=true;
     try{
-      var data=await readAll();
-      if(!data)return;
+      var data=await readLive();
       window.__PUBLIC_TOURNAMENT_DATA=data;
       renderScorers(data);
       renderCards(data);
     }catch(e){
-      console.warn('Direct public scorer/card read failed:',e);
+      console.error('LIVE PUBLIC DATA ERROR:',e);
+      showLiveError(e);
+    }finally{
+      busy=false;
     }
   }
 
   function start(){
     if(started)return;
-    /* IMPORTANT: this public renderer does NOT depend on Firebase SDK loading.
-       It uses Firebase's public REST read, so another device can display the
-       data even if the SDK/auth initialization is delayed or fails. */
     started=true;
 
-    var busy=false;
-    async function refresh(){
-      if(busy)return;
-      busy=true;
-      try{await apply();}finally{busy=false;}
-    }
-
+    /* Initial load, page-load retry, tab activation, and live polling. */
+    refresh();
+    window.addEventListener('load',function(){setTimeout(refresh,100);});
+    document.addEventListener('visibilitychange',function(){
+      if(!document.hidden)refresh();
+    });
     document.addEventListener('click',function(e){
       var tab=e.target&&e.target.closest&&e.target.closest('.tabs [data-tab]');
       if(tab&&(tab.getAttribute('data-tab')==='scorers'||tab.getAttribute('data-tab')==='cards')){
         setTimeout(refresh,50);
       }
     },true);
-
-    /* Initial load + lightweight public polling. No login/authentication is
-       required for these reads. Changes normally appear within 2 seconds. */
-    refresh();
     setInterval(refresh,2000);
   }
 
