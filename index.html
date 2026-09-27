@@ -794,8 +794,7 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
     var idx=sel.value, raw=(input.value||'').trim();
     if(idx===''){alert('Please select a team first.');return;}
     if(!raw){alert('Enter one or more player names.');return;}
-    var names=raw.split(/[,
-]+/).map(function(x){return x.trim();}).filter(Boolean);
+    var names=raw.split(/[,\\n]+/).map(function(x){return x.trim();}).filter(Boolean);
     if(!names.length)return;
     btn.disabled=true; var old=btn.textContent; btn.textContent='SAVING…';
     try{
