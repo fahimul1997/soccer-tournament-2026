@@ -3650,12 +3650,13 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
 </script>
 
 <script>
-/* FRESH TOURNAMENT RESET
-   Admin-only destructive action. Clears the Firebase tournament root and
-   returns the tournament to the pre-raffle state.
+/* LIMITED TOURNAMENT RESET
+   Keeps the website design and tournament structure intact.
+   Clears only team names, scores, goals/scorers, cards/suspensions,
+   and goal/card history stored under games.
 */
 (function(){
-  function freshState(){
+  function freshTeams(){
     var teams=[];
     for(var i=1;i<=8;i++){
       teams.push({
@@ -3665,15 +3666,7 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
         complete:false
       });
     }
-    return {
-      teams:teams,
-      games:[],
-      goals:{},
-      cards:{},
-      locked:false,
-      raffleComplete:false,
-      activeGame:null
-    };
+    return teams;
   }
 
   async function doReset(){
@@ -3687,26 +3680,60 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
     }
 
     var ok=confirm(
-      'RESET THE ENTIRE TOURNAMENT?\\n\\n'+
-      'This will clear team names, rosters, schedule, scores, goals, scorers, cards, suspensions, and standings.\\n\\n'+
-      'The tournament will return to a fresh setup.\\n\\n'+
-      'This cannot be undone. Continue?'
+      'RESET TO FRESH TEAM DATA?\\n\\n'+
+      'This will reset team names, scores, goals/scorers, cards/suspensions, '+
+      'and goal/card history.\\n\\n'+
+      'Your website design, tournament rules, team groups, rosters, and schedule structure will remain.\\n\\n'+
+      'Continue?'
     );
     if(!ok)return;
 
     var btn=document.getElementById('reset');
     var status=document.getElementById('resetStatus');
     if(btn){btn.disabled=true;btn.textContent='RESETTING…';}
-    if(status)status.textContent='Resetting tournament data…';
+    if(status)status.textContent='Resetting team and game data…';
 
     try{
-      await firebase.database().ref('tournament').set(freshState());
+      var ref=firebase.database().ref('tournament');
+      var snap=await ref.once('value');
+      var current=snap.val()||{};
+      var games=Array.isArray(current.games)?current.games:[];
 
-      /* Remove the local recovery copy so this device cannot restore old data. */
+      /* Preserve the tournament structure/schedule, but remove all results
+         and all goal/card history from every game. */
+      games=games.map(function(g){
+        g=g||{};
+        var copy={};
+        Object.keys(g).forEach(function(k){
+          if(k!=='scoreA'&&k!=='scoreB'&&k!=='score'&&k!=='goals'&&k!=='cards'&&
+             k!=='homeScore'&&k!=='awayScore'&&k!=='result'&&k!=='status'){
+            copy[k]=g[k];
+          }
+        });
+        copy.scoreA=0;
+        copy.scoreB=0;
+        return copy;
+      });
+
+      var next={};
+      Object.keys(current).forEach(function(k){
+        next[k]=current[k];
+      });
+
+      next.teams=freshTeams();
+      next.games=games;
+      next.goals={};
+      next.cards={};
+      next.activeGame=null;
+
+      /* Preserve site/tournament configuration and roster structure only as
+         represented by the existing database; the team names/rosters are
+         reset so setup can begin cleanly. */
+      await ref.set(next);
+
       try{localStorage.removeItem('brothers_fc_tournament_durable_backup_v1');}catch(e){}
 
-      window.__TOURNAMENT_STATE=freshState();
-      window.__PUBLIC_TOURNAMENT_DATA=freshState();
+      window.__PUBLIC_TOURNAMENT_DATA=next;
 
       if(typeof window.__refreshTournamentUI==='function'){
         try{await window.__refreshTournamentUI();}catch(e){}
@@ -3715,10 +3742,10 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
         try{await window.__refreshPublic2();}catch(e){}
       }
 
-      if(status)status.innerHTML='<b>✓ Tournament reset successfully.</b> You can now enter all teams and tournament data from the beginning.';
-      alert('✓ TOURNAMENT RESET COMPLETE\\n\\nAll teams, rosters, games, scores, goals, scorers, cards, suspensions, and standings have been cleared.');
+      if(status)status.innerHTML='<b>✓ Reset complete.</b> Team names, scores, goals/scorers, cards/suspensions, and game history are cleared. Website design and tournament structure are unchanged.';
+      alert('✓ RESET COMPLETE\\n\\nTeam names, scores, goals/scorers, cards/suspensions, and game history have been cleared.\\n\\nYour website design and tournament structure were kept.');
     }catch(err){
-      console.error('Tournament reset failed:',err);
+      console.error('Limited tournament reset failed:',err);
       if(status)status.textContent='Reset failed: '+(err&&err.message?err.message:err);
       alert('Could not reset the tournament: '+(err&&err.message?err.message:err));
     }finally{
@@ -3729,8 +3756,8 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
   function bind(){
     var btn=document.getElementById('reset');
     if(!btn){setTimeout(bind,500);return;}
-    if(btn.dataset.freshResetBound==='1')return;
-    btn.dataset.freshResetBound='1';
+    if(btn.dataset.limitedResetBound==='1')return;
+    btn.dataset.limitedResetBound='1';
     btn.addEventListener('click',function(e){
       e.preventDefault();
       e.stopImmediatePropagation();
