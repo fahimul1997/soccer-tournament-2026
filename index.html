@@ -1198,28 +1198,52 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
       scorerList.innerHTML=teamBlocks||'<p class="muted">No goals recorded.</p>';
     }
 
-    /* Cards public summary/history */
+    /* Cards & Suspensions — accumulated group-stage discipline */
     var cardSummary=document.getElementById('cardSummary');
     var cardMap={};
     cards.forEach(function(c){
-      var key=String(c.team||'')+'|'+String(c.player||'');
-      if(!cardMap[key])cardMap[key]={team:c.team,player:c.player,y:0,r:0};
-      if(c.type==='yellow')cardMap[key].y++;else cardMap[key].r++;
+      var game=games[Number(c&&c.game)];
+      /* Accumulated suspension tracking is based on group-stage games only. */
+      if(!game || game.stage!=='Group Stage')return;
+      var player=String(c&&c.player||'').trim();
+      var team=String(c&&c.team||'').trim();
+      if(!player)return;
+      var key=team+'|'+player;
+      if(!cardMap[key])cardMap[key]={team:team,player:player,y:0,r:0};
+      if(String(c.type||'').toLowerCase()==='red')cardMap[key].r++;
+      else cardMap[key].y++;
     });
+
     if(cardSummary){
-      cardSummary.innerHTML=Object.keys(cardMap).map(function(k){
+      var disciplineRows=Object.keys(cardMap).map(function(k){
         var x=cardMap[k];
-        return '<div class="card"><b>'+esc2(x.player)+'</b> — '+esc2(x.team)+' <span class="pill">🟨 '+x.y+'</span><span class="pill">🟥 '+x.r+'</span></div>';
-      }).join('')||'<p class="muted">No cards recorded.</p>';
+        var yellowSusp=Math.floor(x.y/2);
+        var redSusp=x.r;
+        var suspensionCount=yellowSusp+redSusp;
+        var status=suspensionCount?
+          '<span class="pill" style="font-weight:700">⛔ '+suspensionCount+' game'+(suspensionCount===1?'':'s')+' suspension</span>':
+          '<span class="pill">Eligible</span>';
+        return '<div class="card" style="padding:10px 14px;margin-bottom:7px">'+
+          '<div style="display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap">'+
+          '<div><b>'+esc2(x.player)+'</b><div class="muted">'+esc2(x.team)+'</div></div>'+
+          '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">'+
+          '<span class="pill">🟨 '+x.y+'</span>'+
+          '<span class="pill">🟥 '+x.r+'</span>'+
+          status+
+          '</div></div></div>';
+      }).join('');
+
+      cardSummary.innerHTML=disciplineRows||
+        '<p class="muted">No group-stage cards recorded.</p>';
     }
 
     var cardHistory=document.getElementById('cardHistory');
     if(cardHistory){
       cardHistory.innerHTML=cards.length?
-        '<div class="scroll"><table><tr><th>Game</th><th>Team</th><th>Player</th><th>Card</th><th>Time</th></tr>'+
+        '<div class="scroll"><table><tr><th>Game</th><th>Team</th><th>Player</th><th>Stage</th><th>Card</th><th>Time</th></tr>'+
         cards.map(function(c){
-          var g=games[Number(c.game)];
-          return g?'<tr><td>'+esc2(g.stage)+'</td><td>'+esc2(c.team)+'</td><td>'+esc2(c.player)+'</td><td>'+(c.type==='yellow'?'🟨 Yellow':'🟥 Red')+'</td><td>'+esc2(c.time||'-')+'</td></tr>':'';
+          var g=games[Number(c&&c.game)];
+          return g?'<tr><td>Game '+(Number(c.game)+1)+'</td><td>'+esc2(c.team)+'</td><td>'+esc2(c.player)+'</td><td>'+esc2(g.stage)+'</td><td>'+(String(c.type||'').toLowerCase()==='red'?'🟥 Red':'🟨 Yellow')+'</td><td>'+esc2(c.time||'-')+'</td></tr>':'';
         }).join('')+'</table></div>':'<p class="muted">No cards recorded.</p>';
     }
 
