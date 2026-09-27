@@ -1159,24 +1159,41 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
     var st=document.getElementById('standingsStatus');
     if(st){st.className='notice '+(complete?'completeNotice':'placeholderNotice');st.innerHTML=complete?'<b>✅ Official group standings:</b> The team draw is complete and Group A and Group B assignments are finalized.':'<b>📌 Placeholder standings:</b> Complete the team draw and generate the schedule first.'}
 
-    /* Scorers */
+    /* Scorers — compact totals grouped by team */
     var scorerMap={};
     goals.forEach(function(g){
       var player=String(g&&g.player||'').trim();
       if(!player)return;
-      var key=String(g.team||'')+'|'+player;
+      var team=String(g.team||'').trim();
+      var key=team+'|'+player;
       scorerMap[key]=(scorerMap[key]||0)+1;
     });
     var scorerRows=Object.keys(scorerMap).map(function(key){
       var p=key.split('|');
       return {player:p[1],team:p[0],goals:scorerMap[key]};
-    }).sort(function(a,b){return b.goals-a.goals||a.player.localeCompare(b.player)});
+    });
+    var scorerTeams={};
+    scorerRows.forEach(function(x){
+      if(!scorerTeams[x.team])scorerTeams[x.team]=[];
+      scorerTeams[x.team].push(x);
+    });
+    Object.keys(scorerTeams).forEach(function(team){
+      scorerTeams[team].sort(function(a,b){return b.goals-a.goals||a.player.localeCompare(b.player)});
+    });
     var scorerList=document.getElementById('scorerList');
     if(scorerList){
-      scorerList.innerHTML=scorerRows.length?
-        '<div class="scroll"><table><tr><th>#</th><th>Player</th><th>Team</th><th>Goals</th></tr>'+
-        scorerRows.map(function(x,i){return '<tr><td>'+(i+1)+'</td><td>'+esc2(x.player)+'</td><td>'+esc2(x.team)+'</td><td><b>'+x.goals+'</b></td></tr>'}).join('')+
-        '</table></div>':'<p class="muted">No goals recorded.</p>';
+      var teamBlocks=Object.keys(scorerTeams).sort().map(function(team){
+        return '<div class="card" style="padding:12px 16px;margin-bottom:8px">'+
+          '<b>'+esc2(team)+'</b>'+
+          '<div style="margin-top:6px">'+
+          scorerTeams[team].map(function(x){
+            return '<div style="display:flex;justify-content:space-between;gap:12px;padding:4px 0">'+
+              '<span>'+esc2(x.player)+'</span><b>'+x.goals+'</b>'+
+            '</div>';
+          }).join('')+
+          '</div></div>';
+      }).join('');
+      scorerList.innerHTML=teamBlocks||'<p class="muted">No goals recorded.</p>';
     }
 
     /* Cards public summary/history */
