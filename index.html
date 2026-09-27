@@ -721,6 +721,64 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
   });
 })();
 </script>
+<script>
+/* FINAL ADMIN + PUBLIC ROSTER SYNC
+   Every team card on Admin and the public Teams & Players tab is rendered
+   directly from the same Firebase /tournament snapshot. */
+(function(){
+  var last='';
+  function arr(v){return Array.isArray(v)?v:Object.values(v||{});}
+  function esc(v){return String(v==null?'':v).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c];});}
+  function render(d){
+    d=d||{};
+    var teams=arr(d.teams).slice(0,8);
+    var admin=document.getElementById('adminRosters');
+    if(admin){
+      admin.innerHTML=teams.map(function(t,i){
+        t=t||{}; var roster=arr(t.roster);
+        var name=esc(t.name||('Team '+(i+1)));
+        return '<div class="card" style="margin-top:10px"><b>'+name+'</b> — '+roster.length+'/15 '+
+          (t.complete?'<span class="statusDot">Complete</span>':'<span class="statusDot incomplete">Open</span>')+
+          '<div class="teamPlayers" style="margin-top:8px">'+
+          (roster.length?roster.map(function(p){return '<span class="pill">'+esc(typeof p==='string'?p:(p&&p.name||p))+'</span>';}).join(''):'<span class="muted">No players registered yet.</span>')+
+          '</div></div>';
+      }).join('');
+    }
+    var pub=document.getElementById('rosterList');
+    if(pub){
+      var groups=['A','B'];
+      pub.innerHTML=groups.map(function(g){
+        var groupTeams=teams.filter(function(t){return t&&t.group===g;});
+        return '<div class="card" style="margin-top:12px"><h3>Group '+g+'</h3>'+
+          (groupTeams.length?groupTeams.map(function(t){
+            var roster=arr(t.roster);
+            return '<div style="margin:10px 0;padding:10px;border:1px solid #d9dee5;border-radius:10px">'+
+              '<div style="font-weight:800">'+esc(t.name) +' <span class="pill">'+roster.length+'/15</span></div>'+
+              '<div class="teamPlayers" style="margin-top:7px">'+
+              (roster.length?roster.map(function(p){return '<span class="pill">'+esc(typeof p==='string'?p:(p&&p.name||p))+'</span>';}).join(''):'<span class="muted">No players registered yet.</span>')+
+              '</div></div>';
+          }).join(''):'<span class="muted">No teams assigned yet.</span>')+
+          '</div>';
+      }).join('');
+    }
+  }
+  async function sync(){
+    if(!window.firebase||!firebase.database)return;
+    try{
+      var s=await firebase.database().ref('tournament').once('value');
+      var d=s.val()||{}, sig=JSON.stringify(d.teams||[]);
+      if(sig!==last){last=sig;render(d);}
+    }catch(e){console.warn('Roster sync:',e);}
+  }
+  function start(){
+    sync();
+    setTimeout(sync,500);
+    setTimeout(sync,1500);
+    setInterval(sync,3000);
+  }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',start);else start();
+})();
+</script>
 </body></html><script>
 /* Live admin preview: typing team names or changing Group A/B immediately updates the public tabs in this browser.
    Firebase is still only changed when the admin presses SAVE RAFFLE RESULTS & GENERATE SCHEDULE or SAVE TEAM NAME CHANGES. */
