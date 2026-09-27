@@ -2451,8 +2451,6 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
 
 
 <script>
-
-<script>
 /* ULTIMATE ROSTER SAVE FIX
    One authoritative Add Players handler. Comma-separated names are supported.
 */
@@ -2549,15 +2547,16 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
     if(bound)return;
     bound=true;
 
-    /* Remove the legacy inline/property handler and install one handler. */
+    /* The legacy roster controller also has a click handler. Intercept the
+       Add Players click at capture phase and run the authoritative Firebase
+       save directly, then stop older handlers from running. */
     btn.onclick=null;
-    btn.addEventListener('click',addPlayersUltimate,true);
-
-    /* Prevent older delegated Add Players handlers from also writing/clearing the field. */
     document.addEventListener('click',function(e){
       var target=e.target&&e.target.closest?e.target.closest('#addPlayer'):null;
-      if(target===btn && e.eventPhase===1){
+      if(target===btn){
+        e.preventDefault();
         e.stopImmediatePropagation();
+        addPlayersUltimate(e);
       }
     },true);
   }
