@@ -452,6 +452,106 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',install);else install();
 })();
 </script>
+<script>
+/* FINAL DURABLE PERSISTENCE GUARD
+   Firebase remains the source of truth. A non-empty local backup is kept only as
+   a recovery layer so a page reload/legacy renderer cannot make saved data vanish.
+*/
+(function(){
+  var KEY='brothers_fc_tournament_durable_backup_v1';
+  var restoring=false, lastGood=null;
+
+  function hasTournamentData(d){
+    if(!d || typeof d!=='object') return false;
+    return Array.isArray(d.teams) ? d.teams.some(function(t){return t && t.name && !/^Team [1-8]$/.test(String(t.name));}) || !!d.raffleComplete : false;
+  }
+  function saveBackup(d){
+    if(!hasTournamentData(d)) return;
+    try{
+      localStorage.setItem(KEY,JSON.stringify(d));
+      lastGood=d;
+    }catch(e){console.warn('Durable backup failed:',e)}
+  }
+  function getBackup(){
+    try{
+      var raw=localStorage.getItem(KEY);
+      return raw?JSON.parse(raw):null;
+    }catch(e){return null}
+  }
+  function normalize(d){
+    d=d&&typeof d==='object'?d:{};
+    return {
+      teams:Array.isArray(d.teams)?d.teams:Object.values(d.teams||{}),
+      games:Array.isArray(d.games)?d.games:Object.values(d.games||{}),
+      goals:Array.isArray(d.goals)?d.goals:Object.values(d.goals||{}),
+      cards:Array.isArray(d.cards)?d.cards:Object.values(d.cards||{}),
+      locked:!!d.locked,
+      raffleComplete:!!d.raffleComplete
+    };
+  }
+
+  function install(){
+    if(!window.firebase || !firebase.database || !firebase.auth) return;
+    var dbx=firebase.database(), authx=firebase.auth(), ref=dbx.ref('tournament');
+
+    ref.on('value',function(snap){
+      var d=snap.val();
+      if(hasTournamentData(d)){
+        saveBackup(d);
+        return;
+      }
+      var backup=getBackup();
+      if(backup && !restoring && authx.currentUser){
+        restoring=true;
+        ref.set(normalize(backup)).then(function(){
+          console.warn('Restored tournament from durable backup after empty Firebase snapshot.');
+        }).catch(function(e){
+          console.error('Durable Firebase restore failed:',e);
+        }).finally(function(){restoring=false});
+      }
+    });
+
+    function backupFromFirebase(){
+      ref.once('value').then(function(s){
+        var d=s.val();
+        if(hasTournamentData(d))saveBackup(d);
+      }).catch(function(e){console.warn('Backup read failed:',e)});
+    }
+
+    authx.onAuthStateChanged(function(u){
+      if(!u)return;
+      ref.once('value').then(function(s){
+        var d=s.val();
+        if(hasTournamentData(d)){
+          saveBackup(d);
+        }else{
+          var backup=getBackup();
+          if(backup && !restoring){
+            restoring=true;
+            return ref.set(normalize(backup)).then(function(){
+              saveBackup(backup);
+            }).finally(function(){restoring=false});
+          }
+        }
+      }).catch(function(e){console.error('Durable startup recovery failed:',e)});
+    });
+
+    document.addEventListener('click',function(e){
+      var b=e.target.closest&&e.target.closest(
+        '#saveTeams,#saveTeamNames,[data-save-score],#addPlayer,#complete,#lock,#addGoal,#addCard'
+      );
+      if(!b)return;
+      setTimeout(backupFromFirebase,1200);
+      setTimeout(backupFromFirebase,3000);
+    },true);
+
+    window.addEventListener('beforeunload',backupFromFirebase);
+  }
+
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',install);
+  else install();
+})();
+</script>
 </body></html><script>
 /* Live admin preview: typing team names or changing Group A/B immediately updates the public tabs in this browser.
    Firebase is still only changed when the admin presses SAVE RAFFLE RESULTS & GENERATE SCHEDULE or SAVE TEAM NAME CHANGES. */
