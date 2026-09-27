@@ -15,7 +15,32 @@ function showTournamentTab(id){
   ids.forEach(function(x){var el=document.getElementById(x);if(el)el.classList.toggle('hidden',x!==id);});
   document.querySelectorAll('.tabs [data-tab]').forEach(function(b){b.classList.toggle('active',b.getAttribute('data-tab')===id);});
 }
+function renderPublicFallback(){
+  var teams='';
+  ['A','B'].forEach(function(g){
+    teams+='<div class="groupPanel"><div class="groupHead '+(g==='B'?'b':'')+'"><span>GROUP '+g+'</span><span>4 TEAMS</span></div>';
+    for(var i=1;i<=4;i++){
+      var n=(g==='A'?i:4+i);
+      teams+='<div class="teamRow"><div class="teamTop"><span class="teamName">'+i+'. Team '+n+'</span><span class="teamMeta"><span class="teamCount">0/15 players</span><span class="statusDot incomplete">Roster open</span></span></div><div class="teamPlayers"><span class="muted">No players registered yet.</span></div></div>';
+    }
+    teams+='</div>';
+  });
+  var r=document.getElementById('rosterList'); if(r && !r.dataset.liveRendered) r.innerHTML='<div class="teamsGroups">'+teams+'</div>';
+  var s=document.getElementById('games');
+  if(s && !s.dataset.liveRendered) s.innerHTML=
+    '<div class="notice"><b>Group Stage Schedule</b><br>40-minute games • 5-minute halftime • 5-minute changeover/buffer</div>'+
+    '<div class="grid">'+
+    '<div class="card"><h3>10:00 AM</h3><div>Field 1 • Game 1: Group A Team 1 vs Group A Team 2</div><div>Field 2 • Game 2: Group B Team 1 vs Group B Team 2</div></div>'+
+    '<div class="card"><h3>10:50 AM</h3><div>Field 1 • Game 3: Group B Team 1 vs Group B Team 3</div><div>Field 2 • Game 4: Group A Team 1 vs Group A Team 3</div></div>'+
+    '<div class="card"><h3>11:40 AM</h3><div>Field 1 • Game 5: Group A Team 1 vs Group A Team 4</div><div>Field 2 • Game 6: Group B Team 1 vs Group B Team 4</div></div>'+
+    '<div class="card"><h3>12:30 PM</h3><div>Field 1 • Game 7: Group B Team 2 vs Group B Team 3</div><div>Field 2 • Game 8: Group A Team 2 vs Group A Team 3</div></div>'+
+    '<div class="card"><h3>1:20 PM</h3><div>Field 1 • Game 9: Group A Team 2 vs Group A Team 4</div><div>Field 2 • Game 10: Group B Team 2 vs Group B Team 4</div></div>'+
+    '<div class="card"><h3>2:10 PM</h3><div>Field 1 • Game 11: Group B Team 3 vs Group B Team 4</div><div>Field 2 • Game 12: Group A Team 3 vs Group A Team 4</div></div></div>'+
+    '<div class="notice"><b>🍽️ Lunch Break:</b> 30 minutes after all 12 group-stage matches. Lunch will be provided.</div>'+
+    '<div class="card"><h3>🏆 Knockout Stage</h3><p>3:20 PM • Field 1 • Semifinal 1: Group A #1 vs Group B #2</p><p>4:05 PM • Field 2 • Semifinal 2: Group B #1 vs Group A #2</p><p>5:25 PM • Field 1 • Final: Semifinal 1 Winner vs Semifinal 2 Winner</p></div>';
+}
 document.addEventListener('DOMContentLoaded',function(){
+  renderPublicFallback();
   document.querySelectorAll('.tabs [data-tab]').forEach(function(b){
     b.addEventListener('click',function(){showTournamentTab(b.getAttribute('data-tab'));});
   });
