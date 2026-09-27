@@ -539,6 +539,103 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
     }
   };
 })();
+</script><script>
+/* SINGLE SOURCE OF TRUTH / PERSISTENCE GUARD
+   Firebase is authoritative. This layer prevents refreshes and live listeners from
+   replacing saved tournament data with placeholders, and makes score saves preserve
+   every other field. */
+(function(){
+  var DB_PATH='tournament';
+  function normalize(v){return Array.isArray(v)?v:Object.values(v||{})}
+  function currentData(){
+    var t=window.__PUBLIC_TOURNAMENT_DATA;
+    return t&&typeof t==='object'?t:null;
+  }
+  async function loadAuthoritative(){
+    if(!window.firebase||!firebase.database)return null;
+    var snap=await firebase.database().ref(DB_PATH).once('value');
+    return snap.val()||null;
+  }
+  window.__loadAuthoritativeTournament=loadAuthoritative;
+
+  /* Never replace Firebase data with the local empty state after a refresh. */
+  window.__safeRefreshTournament=async function(){
+    try{
+      var data=await loadAuthoritative();
+      if(data && (data.teams||data.games||data.goals||data.cards)){
+        window.__PUBLIC_TOURNAMENT_DATA=data;
+        if(typeof window.__fixPublicStandings==='function')window.__fixPublicStandings();
+        return data;
+      }
+      return data;
+    }catch(e){console.error('Authoritative tournament load failed:',e);return null}
+  };
+
+  /* Patch the original score-save buttons so they update only one game. */
+  function bindScorePersistence(){
+    document.querySelectorAll('[data-save-score]').forEach(function(btn){
+      if(btn.dataset.persistenceBound)return;
+      btn.dataset.persistenceBound='1';
+      btn.addEventListener('click',async function(){
+        var i=Number(btn.dataset.saveScore);
+        try{
+          var user=firebase.auth&&firebase.auth().currentUser;
+          if(!user){alert('Admin login required.');return}
+          var ref=firebase.database().ref(DB_PATH);
+          var snap=await ref.once('value');
+          var data=snap.val()||{};
+          var games=normalize(data.games);
+          if(!games[i])throw new Error('Game not found.');
+          var a=document.querySelector('[data-score-a="'+i+'"]');
+          var b=document.querySelector('[data-score-b="'+i+'"]');
+          games[i].sa=Math.max(0,Number(a&&a.value||0));
+          games[i].sb=Math.max(0,Number(b&&b.value||0));
+          games[i].played=true;
+          await ref.child('games').set(games);
+          await window.__safeRefreshTournament();
+        }catch(e){console.error(e);alert('Could not save this game: '+(e.message||e))}
+      });
+    });
+  }
+
+  /* Patch roster saves so they preserve games/goals/cards/etc. */
+  function bindRosterPersistence(){
+    document.querySelectorAll('[data-save-player]').forEach(function(btn){
+      if(btn.dataset.persistenceBound)return;
+      btn.dataset.persistenceBound='1';
+      btn.addEventListener('click',async function(){
+        var parts=btn.dataset.savePlayer.split('|'),ti=Number(parts[0]),pi=Number(parts[1]);
+        try{
+          var ref=firebase.database().ref(DB_PATH),snap=await ref.once('value'),data=snap.val()||{};
+          var teams=normalize(data.teams);if(!teams[ti])throw new Error('Team not found.');
+          var input=document.querySelector('[data-edit-player="'+btn.dataset.savePlayer+'"]');
+          var next=(input&&input.value||'').trim();if(!next)throw new Error('Player name cannot be blank.');
+          var roster=normalize(teams[ti].roster);
+          roster[pi]=next;teams[ti].roster=roster;
+          await ref.child('teams').set(teams);
+          await window.__safeRefreshTournament();
+        }catch(e){alert('Could not save roster: '+(e.message||e))}
+      });
+    });
+  }
+
+  /* Refresh public views from Firebase when tabs are opened, not from stale local state. */
+  function bindTabs(){
+    document.querySelectorAll('.tabs [data-tab]').forEach(function(tab){
+      if(tab.dataset.persistenceBound)return;
+      tab.dataset.persistenceBound='1';
+      tab.addEventListener('click',function(){setTimeout(window.__safeRefreshTournament,80)});
+    });
+  }
+
+  function boot(){
+    bindTabs();
+    bindScorePersistence();
+    bindRosterPersistence();
+    window.__safeRefreshTournament();
+  }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot);else boot();
+})();
 </script></body></html><script>
 /* Live admin preview: typing team names or changing Group A/B immediately updates the public tabs in this browser.
    Firebase is still only changed when the admin presses SAVE RAFFLE RESULTS & GENERATE SCHEDULE or SAVE TEAM NAME CHANGES. */
