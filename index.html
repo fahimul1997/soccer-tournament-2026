@@ -665,7 +665,63 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
     if(t&&t.id==='adminBtn') setTimeout(render,500);
   });
 })();
-</script>\n</body></html><script>
+</script>\n<script>
+/* FINAL ROSTER TEAM DROPDOWN
+   Always shows the 8 current tournament teams in the Add Players selector.
+   Firebase is authoritative; team-editor values are only a temporary UI fallback. */
+(function(){
+  var last='';
+  function arr(v){return Array.isArray(v)?v:Object.values(v||{});}
+  function esc(v){return String(v==null?'':v).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c];});}
+  function fromEditor(){
+    var ns=document.querySelectorAll('#teamEditor [data-name]'), gs=document.querySelectorAll('#teamEditor [data-group]'), out=[];
+    for(var i=0;i<8;i++) out.push({name:ns[i]&&ns[i].value?ns[i].value:('Team '+(i+1)),group:gs[i]&&gs[i].value==='B'?'B':'A'});
+    return out;
+  }
+  function fill(teams){
+    var s=document.getElementById('rt'); if(!s)return;
+    teams=arr(teams);
+    var old=s.value, html='<option value="">Select team</option>';
+    for(var i=0;i<8;i++){
+      var t=teams[i]||{}, name=String(t.name||('Team '+(i+1))), group=t.group==='B'?'B':'A';
+      html+='<option value="'+i+'">'+esc(name)+' — Group '+group+'</option>';
+    }
+    var sig=html;
+    if(sig!==last || s.options.length!==9){
+      s.innerHTML=html; last=sig;
+      if(old!=='' && Number(old)>=0 && Number(old)<8)s.value=old;
+    }
+    s.disabled=false;
+    s.removeAttribute('disabled');
+    s.style.pointerEvents='auto';
+    s.style.opacity='1';
+  }
+  async function sync(){
+    var s=document.getElementById('rt'); if(!s)return;
+    try{
+      if(window.firebase&&firebase.database){
+        var snap=await firebase.database().ref('tournament').once('value');
+        var d=snap.val()||{};
+        var teams=arr(d.teams);
+        if(teams.length>=8){fill(teams);return;}
+      }
+    }catch(e){}
+    fill(fromEditor());
+  }
+  function start(){
+    sync();
+    setTimeout(sync,500);
+    setTimeout(sync,1500);
+    setTimeout(sync,3000);
+    setInterval(sync,5000);
+  }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',start);else start();
+  document.addEventListener('click',function(e){
+    if(e.target && (e.target.id==='adminBtn' || e.target.id==='addPlayer')) setTimeout(sync,200);
+  });
+})();
+</script>
+</body></html><script>
 /* Live admin preview: typing team names or changing Group A/B immediately updates the public tabs in this browser.
    Firebase is still only changed when the admin presses SAVE RAFFLE RESULTS & GENERATE SCHEDULE or SAVE TEAM NAME CHANGES. */
 (function(){
