@@ -2079,3 +2079,163 @@ $('cardHistory').innerHTML=state.cards.length?'<div class="scroll"><table><tr><t
 })();
 </script>
 
+
+
+<script>
+/* LAST-WORD ROSTER MANAGER
+   Owns the Admin roster selector and player controls. This is deliberately
+   installed last so older delegated handlers/renderers cannot swallow clicks.
+*/
+(function(){
+  var started=false, observer=null;
+
+  function arr(v){return Array.isArray(v)?v:Object.values(v||{});}
+  function ref(){return firebase.database().ref('tournament');}
+  async function data(){var s=await ref().once('value');return s.val()||{};}
+  function currentTeamIndex(){
+    var s=document.getElementById('rt');
+    return s?s.value:'';
+  }
+  function renderSelector(d,preserve){
+    var s=document.getElementById('rt'); if(!s)return;
+    var teams=arr(d.teams), value=preserve!=null?String(preserve):s.value;
+    var html='<option value="">Select team</option>';
+    for(var i=0;i<8;i++){
+      var t=teams[i]||{};
+      html+='<option value="'+i+'">'+String(t.name||('Team '+(i+1))).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]})+' (Group '+(t.group==='B'?'B':'A')+')</option>';
+    }
+    s.innerHTML=html;
+    if(value!=='' && Number(value)>=0 && Number(value)<8)s.value=value;
+    var locked=d.locked===true;
+    s.disabled=locked;
+    s.style.pointerEvents=locked?'none':'auto';
+    s.style.opacity=locked?'0.7':'1';
+    s.style.color='#132238';
+    s.style.background='#fff';
+    s.style.webkitAppearance='menulist';
+  }
+
+  async function addPlayers(){
+    var s=document.getElementById('rt'), input=document.getElementById('player');
+    var i=s?s.value:'', raw=input?(input.value||'').trim():'';
+    if(i==='')throw Error('Please select a team first.');
+    if(!raw)throw Error('Enter one or more player names.');
+    var d=await data();
+    if(d.locked===true)throw Error('Group Stage is locked. No new players can be added.');
+    var teams=arr(d.teams), team=teams[+i];
+    if(!team)throw Error('Selected team was not found.');
+    if(team.complete===true)throw Error('This roster is marked complete. Toggle Complete to reopen it.');
+    var roster=arr(team.roster).slice();
+    var names=raw.split(/[,
+]+/).map(function(x){return x.trim();}).filter(Boolean);
+    var fresh=[];
+    names.forEach(function(n){
+      if(!roster.some(function(p){return String(p).toLowerCase()===n.toLowerCase();}) &&
+         !fresh.some(function(p){return String(p).toLowerCase()===n.toLowerCase();}))fresh.push(n);
+    });
+    if(!fresh.length)throw Error('All entered players are already on this roster.');
+    if(roster.length+fresh.length>15)throw Error('Maximum 15 players per team. This team has '+roster.length+' players.');
+    await ref().update({'teams/'+(+i)+'/roster':roster.concat(fresh)});
+    if(input)input.value='';
+    renderSelector((await data()),i);
+    alert(fresh.length+' player'+(fresh.length===1?'':'s')+' added to '+String(team.name||('Team '+(+i+1)))+'.');
+  }
+
+  async function toggleComplete(){
+    var i=currentTeamIndex();
+    if(i==='')throw Error('Please select a team first.');
+    var d=await data();
+    if(d.locked===true)throw Error('Group Stage is locked.');
+    var teams=arr(d.teams);
+    if(!teams[+i])throw Error('Selected team was not found.');
+    await ref().update({'teams/'+(+i)+'/complete':teams[+i].complete!==true});
+    renderSelector((await data()),i);
+  }
+
+  async function lockStage(){
+    if(!confirm('Lock group-stage rosters? No new players can be added afterward.'))return;
+    await ref().update({locked:true});
+    renderSelector((await data()),'');
+  }
+
+  async function saveEdited(button){
+    var key=button.getAttribute('data-save-player');
+    var parts=key.split('|'),ti=+parts[0],pi=+parts[1];
+    var input=document.querySelector('[data-edit-player="'+key+'"]');
+    var next=(input&&input.value||'').trim();
+    if(!next)throw Error('Player name cannot be blank.');
+    var d=await data(),teams=arr(d.teams),team=teams[ti];
+    if(!team)throw Error('Team not found.');
+    var roster=arr(team.roster).slice(),old=roster[pi];
+    roster[pi]=next;
+    var goals=arr(d.goals).map(function(g){return g.team===team.name&&g.player===old?Object.assign({},g,{player:next}):g;});
+    var cards=arr(d.cards).map(function(g){return g.team===team.name&&g.player===old?Object.assign({},g,{player:next}):g;});
+    await ref().update({'teams/'+ti+'/roster':roster,goals:goals,cards:cards});
+  }
+
+  async function removePlayer(button){
+    var key=button.getAttribute('data-remove'),parts=key.split('|'),ti=+parts[0],pi=+parts[1];
+    var d=await data(),teams=arr(d.teams),roster=arr(teams[ti]&&teams[ti].roster).slice();
+    roster.splice(pi,1);
+    await ref().update({'teams/'+ti+'/roster':roster});
+  }
+
+  function setEnabled(){
+    var s=document.getElementById('rt'),d=window.__AUTHORITATIVE_TOURNAMENT||{};
+    if(s && d.locked!==true){
+      s.disabled=false;
+      s.style.pointerEvents='auto';
+      s.style.opacity='1';
+      s.removeAttribute('disabled');
+    }
+  }
+
+  function bind(){
+    if(started)return;
+    if(!window.firebase||!firebase.database){setTimeout(bind,250);return;}
+    var add=document.getElementById('addPlayer');
+    var complete=document.getElementById('complete');
+    var lock=document.getElementById('lock');
+    if(!add||!complete||!lock){setTimeout(bind,250);return;}
+    started=true;
+
+    firebase.database().ref('tournament').on('value',function(s){
+      var sel=document.getElementById('rt'),old=sel?sel.value:'';
+      renderSelector(s.val()||{},old);
+      setEnabled();
+    });
+
+    document.addEventListener('click',async function(e){
+      var b=e.target.closest&&e.target.closest('#addPlayer,#complete,#lock,[data-save-player],[data-remove]');
+      if(!b)return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      try{
+        if(b.id==='addPlayer')await addPlayers();
+        else if(b.id==='complete')await toggleComplete();
+        else if(b.id==='lock')await lockStage();
+        else if(b.hasAttribute('data-save-player'))await saveEdited(b);
+        else if(b.hasAttribute('data-remove'))await removePlayer(b);
+      }catch(err){console.error('Roster action failed:',err);alert(err.message||String(err));}
+    },true);
+
+    document.addEventListener('change',function(e){
+      if(e.target&&e.target.id==='rt')e.stopImmediatePropagation();
+    },true);
+
+    setEnabled();
+
+    observer=new MutationObserver(function(){
+      var s=document.getElementById('rt');
+      if(s && !s.disabled && s.options.length<9){
+        data().then(function(d){renderSelector(d,s.value);});
+      }
+    });
+    observer.observe(document.body,{subtree:true,childList:true,attributes:true,attributeFilter:['disabled']});
+  }
+
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',bind);
+  else bind();
+})();
+</script>
+
